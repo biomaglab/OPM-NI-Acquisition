@@ -167,6 +167,7 @@ class SettingsDialog(QDialog):
         self._chk_channels: list[QCheckBox] = []
         for i in range(24):
             chk = QCheckBox(f"CH {i+1:02d}")
+            chk.setMinimumHeight(24)
             chk.setChecked(i in cfg.active_channels)
             self._chk_channels.append(chk)
             row = i // 4

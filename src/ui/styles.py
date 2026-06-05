@@ -42,6 +42,17 @@ LED_RUNNING = "#3D8B37"
 LED_RECORDING = "#C0392B"
 LED_ERROR = "#E74C3C"
 
+# Sensor status colors
+SENSOR_ONLINE = "#3D8B37"
+SENSOR_WARMING = "#D4A017"
+SENSOR_OFFLINE = "#70788A"
+SENSOR_ERROR = "#E74C3C"
+
+# Wizard step colors  
+WIZARD_DONE = "#3D8B37"
+WIZARD_ACTIVE = "#5B9BD5"
+WIZARD_PENDING = "#4A5263"
+
 # ── Channel colour palette (24 distinct, muted scientific tones) ─────────── #
 
 CHANNEL_COLORS: list[str] = [
@@ -113,7 +124,6 @@ QLabel#title {{
     font-size: {FONT_SIZE_TITLE};
     font-weight: 600;
     color: {TEXT_BRIGHT};
-    letter-spacing: 1px;
     text-transform: uppercase;
 }}
 
@@ -149,12 +159,11 @@ QPushButton {{
     color: {TEXT_PRIMARY};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_SM};
-    padding: 6px 14px;
+    padding: 5px 12px;
     font-size: {FONT_SIZE_MD};
     font-weight: 600;
-    min-height: 22px;
+    min-height: 26px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }}
 
 QPushButton:hover {{
@@ -233,6 +242,7 @@ QSpinBox, QDoubleSpinBox, QLineEdit {{
     border: 1px solid {BORDER};
     border-radius: {RADIUS_SM};
     padding: 4px 8px;
+    min-height: 24px;
     font-family: {FONT_MONO};
     font-size: {FONT_SIZE_MD};
     selection-background-color: {ACCENT_PRIMARY};
@@ -252,13 +262,13 @@ QSpinBox::up-button, QDoubleSpinBox::up-button {{
     background-color: {BG_CARD};
     border-left: 1px solid {BORDER};
     border-bottom: 1px solid {BORDER};
-    width: 18px;
+    width: 20px;
 }}
 
 QSpinBox::down-button, QDoubleSpinBox::down-button {{
     background-color: {BG_CARD};
     border-left: 1px solid {BORDER};
-    width: 18px;
+    width: 20px;
 }}
 
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
@@ -312,7 +322,6 @@ QTabBar::tab {{
     font-size: {FONT_SIZE_SM};
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }}
 
 QTabBar::tab:selected {{
@@ -328,7 +337,7 @@ QTabBar::tab:hover:!selected {{
 
 /* ── Check Boxes ──────────────────────────────────────────────────────── */
 QCheckBox {{
-    spacing: 6px;
+    spacing: 8px;
     background: transparent;
     font-size: {FONT_SIZE_MD};
 }}
@@ -351,9 +360,9 @@ QGroupBox {{
     background-color: {BG_CARD};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_SM};
-    margin-top: 14px;
-    padding: 12px;
-    padding-top: 16px;
+    margin-top: 22px;
+    padding: 8px;
+    padding-top: 8px;
     font-weight: 600;
     font-size: {FONT_SIZE_SM};
 }}
@@ -361,12 +370,13 @@ QGroupBox {{
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 2px 8px;
-    color: {TEXT_PRIMARY};
+    left: 8px;
+    top: 2px;
+    padding: 0px;
+    color: {TEXT_SECONDARY};
     font-size: {FONT_SIZE_SM};
     text-transform: uppercase;
-    letter-spacing: 1px;
-    background-color: {BG_CARD};
+    background-color: transparent;
 }}
 
 /* ── Scroll Bars ──────────────────────────────────────────────────────── */
@@ -425,6 +435,66 @@ QFormLayout QLabel {{
     font-size: {FONT_SIZE_SM};
     color: {TEXT_SECONDARY};
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+}}
+
+/* ── List Widget ──────────────────────────────────────────────────────── */
+QListWidget {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD};
+    padding: 4px;
+    outline: none;
+}}
+
+QListWidget::item {{
+    padding: 8px 12px;
+    border-radius: {RADIUS_SM};
+    color: {TEXT_BRIGHT};
+    font-size: {FONT_SIZE_MD};
+    font-weight: 500;
+}}
+
+QListWidget::item:selected {{
+    background-color: {ACCENT_PRIMARY};
+    color: {TEXT_PRIMARY};
+}}
+
+QListWidget::item:hover:!selected {{
+    background-color: {BG_HOVER};
+}}
+
+/* ── Sensor & Wizard Styles ───────────────────────────────────────────── */
+QFrame.sensor-card {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD};
+}}
+QFrame.sensor-card:hover {{
+    border-color: {BORDER_LIGHT};
+}}
+QLabel.sensor-led {{
+    border-radius: 5px;
+    background-color: {LED_OFF};
+    min-width: 10px;
+    min-height: 10px;
+    max-width: 10px;
+    max-height: 10px;
+}}
+QFrame.wizard-step {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD};
+    padding: 16px;
+}}
+QProgressBar.wizard-progress {{
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM};
+    text-align: center;
+    background-color: {BG_INPUT};
+    color: {TEXT_PRIMARY};
+}}
+QProgressBar.wizard-progress::chunk {{
+    background-color: {ACCENT_PRIMARY};
+    width: 10px;
 }}
 """

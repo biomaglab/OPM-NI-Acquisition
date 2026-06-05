@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from src.ui.sensor_panel import SensorPanel
 from src.ui.styles import (
     ACCENT_RECORD,
     ACCENT_INFO,
@@ -79,6 +80,7 @@ class ControlPanel(QWidget):
     save_toggled = pyqtSignal(bool)
     export_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
+    manage_sensors_clicked = pyqtSignal()
     ica_clicked = pyqtSignal()
     qzfm_clicked = pyqtSignal()
     sample_rate_changed = pyqtSignal(float)
@@ -100,12 +102,12 @@ class ControlPanel(QWidget):
         layout.setSpacing(8)
 
         # ── Header ────────────────────────────────────────────────────── #
-        title = QLabel("OPM ACQUISITION")
+        title = QLabel("OPM CONTROL SYSTEM")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        device_lbl = QLabel("cDAQ-9171  |  24 CH")
+        device_lbl = QLabel("Sensors & DAQ")
         device_lbl.setObjectName("subtitle")
         device_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(device_lbl)
@@ -162,7 +164,7 @@ class ControlPanel(QWidget):
 
         layout.addWidget(acq_group)
 
-        # ── Recording controls ────────────────────────────────────────── #
+        # ── Logging controls ────────────────────────────────────────── #
         rec_group = QGroupBox("RECORDING")
         rec_layout = QVBoxLayout(rec_group)
         rec_layout.setSpacing(6)
@@ -209,7 +211,7 @@ class ControlPanel(QWidget):
         self._spin_window.setDecimals(1)
         self._spin_window.setSingleStep(0.5)
         self._spin_window.valueChanged.connect(self._on_window_changed)
-        param_layout.addRow("WINDOW:", self._spin_window)
+        param_layout.addRow("TIME:", self._spin_window)
 
         viz_layout.addLayout(param_layout)
 

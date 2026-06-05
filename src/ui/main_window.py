@@ -30,6 +30,9 @@ from src.hardware.daq_worker import DaqWorker
 from src.processing.opm_processor import OpmProcessor
 from src.data.tdms_recorder import TdmsRecorder
 from src.data.exporter import DataExporter
+from src.hardware.sensor_manager import SensorManager
+from src.hardware.sensor_worker import SensorWorker
+from src.ui.sensor_dialog import SensorDialog
 from src.ui.chart_widget import ChartWidget
 from src.ui.control_panel import ControlPanel
 from src.ui.settings_dialog import SettingsDialog
@@ -57,7 +60,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("OPM Acquisition  --  cDAQ-9171  |  24 Channels")
+        self.setWindowTitle("OPM Sensor Management & Control  --  cDAQ-9171  |  24 Channels")
         self.setMinimumSize(1200, 700)
 
         # ── State ─────────────────────────────────────────────────────── #
@@ -71,9 +74,16 @@ class MainWindow(QMainWindow):
 
         # Accumulator for export (keeps filtered data while acquiring).
         self._export_buffer: list[np.ndarray] = []
-
-        # ── Load persisted settings ───────────────────────────────────── #
+        
+        # Sensor Integration
+        self._sensor_manager = SensorManager()
+        self._sensor_worker = SensorWorker(self._sensor_manager)
+        
+        # Load persisted settings 
         self._apply_persisted_settings()
+        
+        # Start SensorWorker
+        self._sensor_worker.start_worker()
 
         # ── UI construction ───────────────────────────────────────────── #
         self._build_ui()
@@ -124,7 +134,7 @@ class MainWindow(QMainWindow):
         cp.export_clicked.connect(self._export_data)
         cp.settings_clicked.connect(self._open_settings)
         cp.ica_clicked.connect(self._open_ica)
-        cp.qzfm_clicked.connect(self._open_qzfm)
+        cp.qzfm_clicked.connect(self._open_sensors)
         cp.sample_rate_changed.connect(self._on_sample_rate_changed)
         cp.window_seconds_changed.connect(self._on_window_changed)
 
@@ -321,6 +331,11 @@ class MainWindow(QMainWindow):
         self._qzfm_window.raise_()
         self._qzfm_window.activateWindow()
 
+    def _open_sensors(self) -> None:
+        """Open the Sensor Manager dialog."""
+        dialog = SensorDialog(self._sensor_manager, self._sensor_worker, parent=self)
+        dialog.exec()
+
     def _open_settings(self) -> None:
         """Open the settings dialog."""
         dialog = SettingsDialog(daq_config=self._daq_config, parent=self)
@@ -384,6 +399,8 @@ class MainWindow(QMainWindow):
         elif isinstance(active_channels, list):
             active_channels = [int(x) for x in active_channels]
         self._daq_config.active_channels = active_channels
+        
+        self._sensor_manager.load_config(s)
 
     # ── Window lifecycle ──────────────────────────────────────────────── #
 
