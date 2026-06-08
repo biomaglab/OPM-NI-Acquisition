@@ -406,6 +406,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Ensure clean shutdown of worker and recorder."""
+        # Save sensor configurations
+        s = QSettings("OPM", "OPM-Acquisition")
+        self._sensor_manager.save_config(s)
+        
         if self._daq_worker is not None and self._daq_worker.is_running:
             self._daq_worker.stop()
             self._daq_worker.wait(3000)
