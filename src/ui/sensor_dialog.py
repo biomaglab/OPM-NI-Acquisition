@@ -134,10 +134,15 @@ class SensorDialog(QDialog):
         self.chk_master = QCheckBox("Master")
         self.chk_master.toggled.connect(self._on_master_toggled)
         
+        self.cmb_sensor_axis_mode = QComboBox()
+        self.cmb_sensor_axis_mode.addItems(["z", "y", "dual"])
+        self.cmb_sensor_axis_mode.currentTextChanged.connect(self._on_axis_mode_changed)
+        
         form.addRow("ID:", self.lbl_id)
         form.addRow("Port:", self.lbl_port)
         form.addRow("Name:", self.edit_name)
         form.addRow("Synchronization:", self.chk_master)
+        form.addRow("Axis Mode:", self.cmb_sensor_axis_mode)
         
         tc_layout.addWidget(details_group)
         
@@ -353,6 +358,11 @@ class SensorDialog(QDialog):
             self.chk_master.setChecked(info.is_master)
         self.chk_master.blockSignals(False)
         
+        self.cmb_sensor_axis_mode.blockSignals(True)
+        if self.cmb_sensor_axis_mode.currentText() != info.axis_mode:
+            self.cmb_sensor_axis_mode.setCurrentText(info.axis_mode)
+        self.cmb_sensor_axis_mode.blockSignals(False)
+        
         def _update_led(lbl: QLabel, active: bool):
             if getattr(lbl, "_active_state", None) == active:
                 return
@@ -434,6 +444,14 @@ class SensorDialog(QDialog):
                 self.worker.queue_command(s_id, SensorCommand.SET_MASTER, is_master=checked)
             else:
                 self.manager.get_configs()[s_id]["is_master"] = checked
+                
+    def _on_axis_mode_changed(self, text: str):
+        s_id = self._current_sensor_id()
+        if s_id:
+            if self.manager.get_info(s_id).connected:
+                self.worker.queue_command(s_id, SensorCommand.SET_AXIS_MODE, mode=text)
+            else:
+                self.manager.get_configs()[s_id]["axis_mode"] = text
             
     def _on_connect_toggle(self):
         s_id = self._current_sensor_id()

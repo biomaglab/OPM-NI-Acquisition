@@ -27,6 +27,7 @@ class SensorCommand(Enum):
     UPDATE_STATUS = "update_status"
     START_STREAMING = "start_streaming"
     STOP_STREAMING = "stop_streaming"
+    SET_AXIS_MODE = "set_axis_mode"
 
 class SensorWorker(QThread):
     progress = pyqtSignal(str, str)          # (sensor_id, message)
@@ -242,6 +243,16 @@ class SensorWorker(QThread):
                 sensor.set_master(master=is_master)
                 config = self._manager.get_configs()[sensor_id]
                 config["is_master"] = is_master
+                self._emit_status(sensor_id)
+                
+        elif command == SensorCommand.SET_AXIS_MODE:
+            sensor = self._manager.get_sensor(sensor_id)
+            if sensor:
+                mode = kwargs.get('mode', 'z')
+                if hasattr(sensor, 'set_axis_mode'):
+                    sensor.set_axis_mode(mode=mode)
+                config = self._manager.get_configs()[sensor_id]
+                config["axis_mode"] = mode
                 self._emit_status(sensor_id)
                 
         elif command == SensorCommand.REBOOT:

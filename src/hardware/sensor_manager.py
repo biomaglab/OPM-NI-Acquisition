@@ -192,6 +192,7 @@ class SensorInfo:
     name: str
     is_master: bool = False
     gain: float = 2.7  # V/nT
+    axis_mode: str = "z"
     
     # State fields
     connected: bool = False
@@ -217,7 +218,7 @@ class SensorManager:
         self._sensors: dict[str, QZFM | MockQZFM] = {}
         self._configs: dict[str, dict] = {}  # id -> {port, name, master, gain}
         
-    def add_sensor(self, sensor_id: str, port: str, name: str = "", is_master: bool = False, gain: float = 2.7) -> None:
+    def add_sensor(self, sensor_id: str, port: str, name: str = "", is_master: bool = False, gain: float = 2.7, axis_mode: str = "z") -> None:
         if not name:
             name = f"Sensor {len(self._configs) + 1}"
             
@@ -226,6 +227,7 @@ class SensorManager:
             "name": name,
             "is_master": is_master,
             "gain": gain,
+            "axis_mode": axis_mode,
         }
         logger.info(f"Added sensor config: {sensor_id} ({name}) on port {port}")
         
@@ -291,7 +293,8 @@ class SensorManager:
             port=config["port"],
             name=config["name"],
             is_master=config["is_master"],
-            gain=config["gain"]
+            gain=config.get("gain", 2.7),
+            axis_mode=config.get("axis_mode", "z")
         )
         
         if sensor is not None:
@@ -302,6 +305,7 @@ class SensorManager:
                 info.laser_locked = sensor.led.get('laser lock (LED3)', False)
                 info.field_zeroed = sensor.led.get('field zeroed (LED4)', False)
                 info.is_calibrated = sensor.is_calibrated
+                info.axis_mode = getattr(sensor, 'axis_mode', info.axis_mode)
                 
                 info.cell_temp_error = sensor.sensor_par.get('cell temp error', 0.0)
                 info.bz_field = sensor.sensor_par.get('Bz field (pT)', 0.0)
@@ -334,6 +338,7 @@ class SensorManager:
             settings.setValue("name", config["name"])
             settings.setValue("is_master", config["is_master"])
             settings.setValue("gain", config["gain"])
+            settings.setValue("axis_mode", config.get("axis_mode", "z"))
             settings.endGroup()
         settings.endGroup()
         
@@ -353,8 +358,10 @@ class SensorManager:
             
             gain_val = settings.value("gain", 2.7)
             gain = float(gain_val) if gain_val else 2.7
+            
+            axis_mode = str(settings.value("axis_mode", "z"))
                 
             if port:
-                self.add_sensor(s_id, port, name, is_master, gain)
+                self.add_sensor(s_id, port, name, is_master, gain, axis_mode)
             settings.endGroup()
         settings.endGroup()
