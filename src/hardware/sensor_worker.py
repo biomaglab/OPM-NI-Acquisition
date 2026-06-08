@@ -163,9 +163,13 @@ class SensorWorker(QThread):
             sensor = self._manager.get_sensor(sensor_id)
             if sensor:
                 try:
+                    config = self._manager.get_configs().get(sensor_id, {})
+                    axis_mode = config.get("axis_mode", "z")
+                    if hasattr(sensor, 'set_axis_mode'):
+                        sensor.set_axis_mode(mode=axis_mode)
                     sensor.update_status(clear_buffer=True)
                 except Exception as e:
-                    logger.debug(f"Error updating status after connect for {sensor_id}: {e}")
+                    logger.debug(f"Error configuring status after connect for {sensor_id}: {e}")
             self._emit_status(sensor_id)
             
         elif command == SensorCommand.DISCONNECT:
@@ -283,6 +287,12 @@ class SensorWorker(QThread):
                 time.sleep(0.5)
                 
             if zero_calibrate:
+                # Ensure the sensor is in the correct axis mode before zeroing and calibrating
+                config = self._manager.get_configs().get(sensor_id, {})
+                axis_mode = config.get("axis_mode", "z")
+                if hasattr(sensor, 'set_axis_mode'):
+                    sensor.set_axis_mode(mode=axis_mode)
+                
                 self.progress.emit(sensor_id, "Starting field zeroing...")
                 sensor.field_zero(on=True, show=False)
                 self.add_zeroing_task(sensor_id)
