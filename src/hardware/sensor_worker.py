@@ -287,11 +287,10 @@ class SensorWorker(QThread):
                 time.sleep(0.5)
                 
             if zero_calibrate:
-                # Ensure the sensor is in the correct axis mode before zeroing and calibrating
-                config = self._manager.get_configs().get(sensor_id, {})
-                axis_mode = config.get("axis_mode", "z")
+                # The QZFM firmware requires the sensor to be in 'z' mode to run Field Zero and Calibration.
+                # If it is in 'dual' mode, it will fail with "Z alone, Run Field Zero & then Calibration".
                 if hasattr(sensor, 'set_axis_mode'):
-                    sensor.set_axis_mode(mode=axis_mode)
+                    sensor.set_axis_mode(mode='z')
                 
                 self.progress.emit(sensor_id, "Starting field zeroing...")
                 sensor.field_zero(on=True, show=False)
@@ -355,7 +354,18 @@ class SensorWorker(QThread):
                     
                 self.progress.emit(sensor_id, "Calibrando...")
                 sensor.calibrate(show=False)
-                sensor.save_state()
+                
+                try:
+                    sensor.save_state()
+                except Exception as e:
+                    logger.debug(f"Failed to save sensor state: {e}")
+                    
+                # Restore the user's configured axis mode after calibration is complete
+                config = self._manager.get_configs().get(sensor_id, {})
+                target_axis_mode = config.get("axis_mode", "z")
+                if hasattr(sensor, 'set_axis_mode'):
+                    sensor.set_axis_mode(mode=target_axis_mode)
+                    
                 self._emit_status(sensor_id)
                 self.progress.emit(sensor_id, "Auto-start concluído!")
 
