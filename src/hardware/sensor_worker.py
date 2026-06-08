@@ -159,6 +159,12 @@ class SensorWorker(QThread):
     def _execute_command(self, sensor_id: str, command: SensorCommand, kwargs: dict):
         if command == SensorCommand.CONNECT:
             self._manager.connect_sensor(sensor_id)
+            sensor = self._manager.get_sensor(sensor_id)
+            if sensor:
+                try:
+                    sensor.update_status(clear_buffer=True)
+                except Exception as e:
+                    logger.debug(f"Error updating status after connect for {sensor_id}: {e}")
             self._emit_status(sensor_id)
             
         elif command == SensorCommand.DISCONNECT:
@@ -336,7 +342,7 @@ class SensorWorker(QThread):
         for s_id, sensor in self._manager._sensors.items():
             if s_id not in self._zeroing_tasks and s_id not in self._streaming_tasks:
                 try:
-                    sensor.update_status(clear_buffer=False)
+                    sensor.update_status(clear_buffer=True)
                     self._emit_status(s_id)
                 except Exception as e:
                     logger.debug(f"Polling error on {s_id}: {e}")
