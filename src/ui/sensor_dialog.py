@@ -331,24 +331,32 @@ class SensorDialog(QDialog):
         for i in range(self.list_sensors.count()):
             item = self.list_sensors.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == s_id:
-                item.setText(f"{info.name} ({info.port})")
+                new_text = f"{info.name} ({info.port})"
+                if item.text() != new_text:
+                    item.setText(new_text)
                 break
                 
         if s_id == self._current_sensor_id():
             self._update_details_pane(info)
             
     def _update_details_pane(self, info: SensorInfo):
-        self.lbl_id.setText(info.sensor_id)
-        self.lbl_port.setText(info.port)
+        if self.lbl_id.text() != info.sensor_id:
+            self.lbl_id.setText(info.sensor_id)
+        if self.lbl_port.text() != info.port:
+            self.lbl_port.setText(info.port)
         
         if self.edit_name.text() != info.name and not self.edit_name.hasFocus():
             self.edit_name.setText(info.name)
             
         self.chk_master.blockSignals(True)
-        self.chk_master.setChecked(info.is_master)
+        if self.chk_master.isChecked() != info.is_master:
+            self.chk_master.setChecked(info.is_master)
         self.chk_master.blockSignals(False)
         
         def _update_led(lbl: QLabel, active: bool):
+            if getattr(lbl, "_active_state", None) == active:
+                return
+            lbl._active_state = active
             if active:
                 lbl.setStyleSheet(f"background-color: {ACCENT_PRIMARY}; color: {TEXT_PRIMARY}; border-radius: 10px; font-weight: bold; font-size: 10px;")
             else:
@@ -359,9 +367,17 @@ class SensorDialog(QDialog):
         _update_led(self.led_lock, info.laser_locked)
         _update_led(self.led_zero, info.field_zeroed)
         
-        self.lbl_b0.setText(f"{info.b0_field:.2f} pT")
-        self.lbl_bz.setText(f"{info.bz_field:.2f} pT")
-        self.lbl_temp_err.setText(f"{info.cell_temp_error:.4f}")
+        b0_str = f"{info.b0_field:.2f} pT"
+        if self.lbl_b0.text() != b0_str:
+            self.lbl_b0.setText(b0_str)
+            
+        bz_str = f"{info.bz_field:.2f} pT"
+        if self.lbl_bz.text() != bz_str:
+            self.lbl_bz.setText(bz_str)
+            
+        temp_err_str = f"{info.cell_temp_error:.4f}"
+        if self.lbl_temp_err.text() != temp_err_str:
+            self.lbl_temp_err.setText(temp_err_str)
         
         if info.connected:
             self.btn_connect.setText("Disconnect")
