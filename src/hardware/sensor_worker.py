@@ -45,7 +45,7 @@ class SensorWorker(QThread):
         self._mutex = QMutex()
         self._cond = QWaitCondition()
         self._running = False
-        self._polling_interval = 2.0  # seconds between status updates
+        self._polling_interval = 0.5  # seconds between status updates
         self._zeroing_tasks: set[str] = set()
         self._zeroing_monitor: dict[str, dict[str, list[float]]] = {}
         self._zero_cond = 100.0

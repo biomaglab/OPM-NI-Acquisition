@@ -402,7 +402,7 @@ class QzfmWorker(QObject):
         self._stop_status_timer()
         self._status_timer = QTimer()
         self._status_timer.timeout.connect(self._poll_status)
-        self._status_timer.start(1000)  # Update status every 1s
+        self._status_timer.start(500)  # Update status every 0.5s
 
     def _stop_status_timer(self) -> None:
         if self._status_timer is not None:
