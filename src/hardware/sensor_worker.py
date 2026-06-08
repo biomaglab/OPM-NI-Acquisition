@@ -28,6 +28,7 @@ class SensorCommand(Enum):
     START_STREAMING = "start_streaming"
     STOP_STREAMING = "stop_streaming"
     SET_AXIS_MODE = "set_axis_mode"
+    AUTO_START_ALL = "auto_start_all"
 
 class SensorWorker(QThread):
     progress = pyqtSignal(str, str)          # (sensor_id, message)
@@ -287,87 +288,59 @@ class SensorWorker(QThread):
                 time.sleep(0.5)
                 
             if zero_calibrate:
-                # The QZFM firmware requires the sensor to be in 'z' mode to run Field Zero and Calibration.
-                # If it is in 'dual' mode, it will fail with "Z alone, Run Field Zero & then Calibration".
-                if hasattr(sensor, 'set_axis_mode'):
-                    sensor.set_axis_mode(mode='z')
-                
-                self.progress.emit(sensor_id, "Starting field zeroing...")
-                sensor.field_zero(on=True, show=False)
-                self.add_zeroing_task(sensor_id)
-                
-                x_comp, y_comp, z_comp, t = [], [], [], []
-                
-                # Wait for 6 initial readings
-                while len(x_comp) < 6:
-                    if not self._running:
-                        return
-                    sensor.update_status()
-                    t.append(sensor.status_last_updated)
-                    x_comp.append(sensor.sensor_par.get('B0 field (pT)', 0.0))
-                    y_comp.append(sensor.sensor_par.get('By field (pT)', 0.0))
-                    z_comp.append(sensor.sensor_par.get('Bz field (pT)', 0.0))
+                success = self._zero_and_calibrate_single(sensor_id, sensor, zero_cond)
+                if success:
                     self._emit_status(sensor_id)
-                    time.sleep(0.5)
-                    
-                zeroed = False
-                while not zeroed:
-                    if not self._running:
+                    self.progress.emit(sensor_id, "Auto-start concluído!")
+
+        elif command == SensorCommand.AUTO_START_ALL:
+            sensors_dict = {}
+            for sid, conf in self._manager.get_configs().items():
+                s = self._manager.get_sensor(sid)
+                if s:
+                    sensors_dict[sid] = s
+
+            if not sensors_dict:
+                return
+
+            zero_calibrate = kwargs.get('zero_calibrate', True)
+            zero_cond = kwargs.get('zero_cond', 100)
+            
+            self.progress.emit("all", "Atribuindo papéis (Master/Slave)...")
+            for sid, s in sensors_dict.items():
+                config = self._manager.get_configs().get(sid, {})
+                is_master = config.get("is_master", False)
+                if hasattr(s, 'set_master'):
+                    s.set_master(master=is_master)
+
+            self.progress.emit("all", "Iniciando auto-start (aquecimento de todos os lasers)...")
+            for sid, s in sensors_dict.items():
+                s.ser.write(b'>')
+                s.update_status()
+
+            self.progress.emit("all", "Aguardando lasers e temperaturas estabilizarem...")
+            all_locked = False
+            while not all_locked:
+                if not self._running:
+                    return
+                all_locked = True
+                for sid, s in sensors_dict.items():
+                    s.update_status(clear_buffer=False)
+                    self._emit_status(sid)
+                    if not s.led.get("laser lock (LED3)") or not s.led.get("cell temp lock (LED2)"):
+                        all_locked = False
+                time.sleep(0.5)
+
+            if zero_calibrate:
+                total = len(sensors_dict)
+                for idx, (sid, s) in enumerate(sensors_dict.items(), 1):
+                    self.progress.emit("all", f"Calibrando sensor {idx}/{total} ({sid})...")
+                    success = self._zero_and_calibrate_single(sid, s, zero_cond)
+                    if not success:
                         return
-                    
-                    t_diff = [j-i for i, j in zip(t[-5:][:-1], t[-5:][1:])]
-                    x_diff = [j-i for i, j in zip(x_comp[-5:][:-1], x_comp[-5:][1:])]
-                    y_diff = [j-i for i, j in zip(y_comp[-5:][:-1], y_comp[-5:][1:])]
-                    z_diff = [j-i for i, j in zip(z_comp[-5:][:-1], z_comp[-5:][1:])]
-                    
-                    x_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(x_diff, t_diff)]
-                    y_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(y_diff, t_diff)]
-                    z_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(z_diff, t_diff)]
-                    
-                    if all(x < zero_cond for x in x_grad) and all(y < zero_cond for y in y_grad) and all(z < zero_cond for z in z_grad):
-                        zeroed = True
-                    else:
-                        sensor.update_status()
-                        t.append(sensor.status_last_updated)
-                        x_comp.append(sensor.sensor_par.get('B0 field (pT)', 0.0))
-                        y_comp.append(sensor.sensor_par.get('By field (pT)', 0.0))
-                        z_comp.append(sensor.sensor_par.get('Bz field (pT)', 0.0))
-                        self._emit_status(sensor_id)
-                        time.sleep(0.5)
-                        
-                # Stop zeroing
-                sensor.field_zero(on=False, show=False)
-                self.remove_zeroing_task(sensor_id)
-                self.progress.emit(sensor_id, "Field zeroing concluído. Restaurando temp lock...")
-                
-                temp_err_ok = False
-                temp_err_last = float('inf')
-                while not temp_err_ok:
-                    if not self._running:
-                        return
-                    sensor.update_status()
-                    err = sensor.sensor_par.get('cell temp error', float('inf'))
-                    temp_err_ok = abs(err) <= 0.001 or abs(temp_err_last - err) <= 0.001
-                    temp_err_last = err
-                    self._emit_status(sensor_id)
-                    time.sleep(0.5)
-                    
-                self.progress.emit(sensor_id, "Calibrando...")
-                sensor.calibrate(show=False)
-                
-                try:
-                    sensor.save_state()
-                except Exception as e:
-                    logger.debug(f"Failed to save sensor state: {e}")
-                    
-                # Restore the user's configured axis mode after calibration is complete
-                config = self._manager.get_configs().get(sensor_id, {})
-                target_axis_mode = config.get("axis_mode", "z")
-                if hasattr(sensor, 'set_axis_mode'):
-                    sensor.set_axis_mode(mode=target_axis_mode)
-                    
-                self._emit_status(sensor_id)
-                self.progress.emit(sensor_id, "Auto-start concluído!")
+                    self._emit_status(sid)
+
+            self.progress.emit("all", "Todos os sensores foram iniciados e calibrados com sucesso!")
 
     def _poll_sensors(self):
         for s_id, sensor in self._manager._sensors.items():
@@ -377,6 +350,88 @@ class SensorWorker(QThread):
                     self._emit_status(s_id)
                 except Exception as e:
                     logger.debug(f"Polling error on {s_id}: {e}")
+
+    def _zero_and_calibrate_single(self, sensor_id: str, sensor: object, zero_cond: float) -> bool:
+        # The QZFM firmware requires the sensor to be in 'z' mode to run Field Zero and Calibration.
+        # If it is in 'dual' mode, it will fail with "Z alone, Run Field Zero & then Calibration".
+        if hasattr(sensor, 'set_axis_mode'):
+            sensor.set_axis_mode(mode='z')
+        
+        self.progress.emit(sensor_id, "Starting field zeroing...")
+        sensor.field_zero(on=True, show=False)
+        self.add_zeroing_task(sensor_id)
+        
+        x_comp, y_comp, z_comp, t = [], [], [], []
+        
+        # Wait for 6 initial readings
+        while len(x_comp) < 6:
+            if not self._running:
+                return False
+            sensor.update_status()
+            t.append(sensor.status_last_updated)
+            x_comp.append(sensor.sensor_par.get('B0 field (pT)', 0.0))
+            y_comp.append(sensor.sensor_par.get('By field (pT)', 0.0))
+            z_comp.append(sensor.sensor_par.get('Bz field (pT)', 0.0))
+            self._emit_status(sensor_id)
+            time.sleep(0.5)
+            
+        zeroed = False
+        while not zeroed:
+            if not self._running:
+                return False
+            
+            t_diff = [j-i for i, j in zip(t[-5:][:-1], t[-5:][1:])]
+            x_diff = [j-i for i, j in zip(x_comp[-5:][:-1], x_comp[-5:][1:])]
+            y_diff = [j-i for i, j in zip(y_comp[-5:][:-1], y_comp[-5:][1:])]
+            z_diff = [j-i for i, j in zip(z_comp[-5:][:-1], z_comp[-5:][1:])]
+            
+            x_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(x_diff, t_diff)]
+            y_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(y_diff, t_diff)]
+            z_grad = [abs(i/j) if j > 0 else float('inf') for i, j in zip(z_diff, t_diff)]
+            
+            if all(x < zero_cond for x in x_grad) and all(y < zero_cond for y in y_grad) and all(z < zero_cond for z in z_grad):
+                zeroed = True
+            else:
+                sensor.update_status()
+                t.append(sensor.status_last_updated)
+                x_comp.append(sensor.sensor_par.get('B0 field (pT)', 0.0))
+                y_comp.append(sensor.sensor_par.get('By field (pT)', 0.0))
+                z_comp.append(sensor.sensor_par.get('Bz field (pT)', 0.0))
+                self._emit_status(sensor_id)
+                time.sleep(0.5)
+                
+        # Stop zeroing
+        sensor.field_zero(on=False, show=False)
+        self.remove_zeroing_task(sensor_id)
+        self.progress.emit(sensor_id, "Field zeroing concluído. Restaurando temp lock...")
+        
+        temp_err_ok = False
+        temp_err_last = float('inf')
+        while not temp_err_ok:
+            if not self._running:
+                return False
+            sensor.update_status()
+            err = sensor.sensor_par.get('cell temp error', float('inf'))
+            temp_err_ok = abs(err) <= 0.001 or abs(temp_err_last - err) <= 0.001
+            temp_err_last = err
+            self._emit_status(sensor_id)
+            time.sleep(0.5)
+            
+        self.progress.emit(sensor_id, "Calibrando...")
+        sensor.calibrate(show=False)
+        
+        try:
+            sensor.save_state()
+        except Exception as e:
+            logger.debug(f"Failed to save sensor state: {e}")
+            
+        # Restore the user's configured axis mode after calibration is complete
+        config = self._manager.get_configs().get(sensor_id, {})
+        target_axis_mode = config.get("axis_mode", "z")
+        if hasattr(sensor, 'set_axis_mode'):
+            sensor.set_axis_mode(mode=target_axis_mode)
+            
+        return True
 
     def _check_zeroing_completion(self, sensor_id: str, sensor) -> None:
         monitor = self._zeroing_monitor.get(sensor_id)

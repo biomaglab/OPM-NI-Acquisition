@@ -90,6 +90,11 @@ class SensorDialog(QDialog):
         btn_layout.addWidget(self.btn_remove)
         left_layout.addLayout(btn_layout)
         
+        self.btn_start_all = QPushButton("START ALL SENSORS")
+        self.btn_start_all.setStyleSheet(f"background-color: {ACCENT_PRIMARY}; color: {BG_DARKEST}; font-weight: bold; padding: 10px; margin-top: 10px;")
+        self.btn_start_all.clicked.connect(self._on_start_all_sensors)
+        left_layout.addWidget(self.btn_start_all)
+        
         splitter.addWidget(left_pane)
         
         # ── Right pane: Details ────────────────────────────────────────────── #
@@ -533,6 +538,30 @@ class SensorDialog(QDialog):
         info = self.manager.get_info(s_id)
         wizard = CalibrationWizard(s_id, info.name, self.worker, self)
         wizard.exec()
+        
+    def _on_start_all_sensors(self):
+        configs = self.manager.get_configs()
+        if not configs:
+            QMessageBox.warning(self, "Warning", "No sensors configured.")
+            return
+            
+        masters = [cid for cid, c in configs.items() if c.get('is_master')]
+        if len(masters) == 0:
+            QMessageBox.warning(self, "Warning", "No Master sensor configured! Please set exactly one sensor as Master before starting all.")
+            return
+        elif len(masters) > 1:
+            QMessageBox.warning(self, "Warning", "Multiple Master sensors configured! Please set exactly ONE sensor as Master.")
+            return
+            
+        reply = QMessageBox.question(
+            self,
+            "Start All Sensors",
+            "This will orchestrate the heating, zeroing, and calibration sequence for ALL configured sensors.\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.worker.queue_command("all", SensorCommand.AUTO_START_ALL)
+            QMessageBox.information(self, "Started", "Batch initialization started. Watch the logs and status LEDs. Please do not close this window until complete.")
         
     def _on_stream_toggled(self, checked: bool):
         s_id = self._current_sensor_id()
