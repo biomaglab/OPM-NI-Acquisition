@@ -343,7 +343,7 @@ class SensorWorker(QThread):
             self.progress.emit("all", "Todos os sensores foram iniciados e calibrados com sucesso!")
 
     def _poll_sensors(self):
-        for s_id, sensor in self._manager._sensors.items():
+        for s_id, sensor in list(self._manager._sensors.items()):
             if s_id not in self._zeroing_tasks and s_id not in self._streaming_tasks:
                 try:
                     sensor.update_status(clear_buffer=True)
