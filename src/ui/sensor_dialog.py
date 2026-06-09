@@ -30,6 +30,7 @@ from src.hardware.sensor_manager import SensorManager, SensorInfo
 from src.hardware.sensor_worker import SensorWorker, SensorCommand
 from src.ui.calibration_wizard import CalibrationWizard
 from src.ui.zeroing_window import ZeroingWindow
+from src.ui.batch_start_window import BatchStartWindow
 from src.ui.styles import (
     BG_DARKEST,
     BG_CARD,
@@ -560,8 +561,8 @@ class SensorDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self.worker.queue_command("all", SensorCommand.AUTO_START_ALL)
-            QMessageBox.information(self, "Started", "Batch initialization started. Watch the logs and status LEDs. Please do not close this window until complete.")
+            window = BatchStartWindow(self.manager, self.worker, self)
+            window.exec()
         
     def _on_stream_toggled(self, checked: bool):
         s_id = self._current_sensor_id()
