@@ -11,6 +11,16 @@ import time
 try:
     from QZFM import QZFM
     HAS_QZFM = True
+
+    # Monkey-patch QZFM.update_status to avoid IndexError crashes on bad reads
+    _original_update_status = QZFM.update_status
+    def _safe_update_status(self, clear_buffer=True):
+        try:
+            _original_update_status(self, clear_buffer=clear_buffer)
+        except Exception as e:
+            logger.debug(f"Ignored error in QZFM update_status: {e}")
+    QZFM.update_status = _safe_update_status
+
 except ImportError:
     HAS_QZFM = False
 
