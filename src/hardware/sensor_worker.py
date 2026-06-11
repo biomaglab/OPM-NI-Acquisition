@@ -291,7 +291,7 @@ class SensorWorker(QThread):
                 success = self._zero_and_calibrate_single(sensor_id, sensor, zero_cond)
                 if success:
                     self._emit_status(sensor_id)
-                    self.progress.emit(sensor_id, "Auto-start concluído!")
+                    self.progress.emit(sensor_id, "Auto-start completed!")
 
         elif command == SensorCommand.AUTO_START_ALL:
             sensors_dict = {}
@@ -306,19 +306,19 @@ class SensorWorker(QThread):
             zero_calibrate = kwargs.get('zero_calibrate', True)
             zero_cond = kwargs.get('zero_cond', 100)
             
-            self.progress.emit("all", "Atribuindo papéis (Master/Slave)...")
+            self.progress.emit("all", "Assigning roles (Master/Slave)...")
             for sid, s in sensors_dict.items():
                 config = self._manager.get_configs().get(sid, {})
                 is_master = config.get("is_master", False)
                 if hasattr(s, 'set_master'):
                     s.set_master(master=is_master)
 
-            self.progress.emit("all", "Iniciando auto-start (aquecimento de todos os lasers)...")
+            self.progress.emit("all", "Starting auto-start (warming up all lasers)...")
             for sid, s in sensors_dict.items():
                 s.ser.write(b'>')
                 s.update_status()
 
-            self.progress.emit("all", "Aguardando lasers e temperaturas estabilizarem...")
+            self.progress.emit("all", "Waiting for lasers and temperatures to stabilize...")
             all_locked = False
             while not all_locked:
                 if not self._running:
@@ -334,13 +334,13 @@ class SensorWorker(QThread):
             if zero_calibrate:
                 total = len(sensors_dict)
                 for idx, (sid, s) in enumerate(sensors_dict.items(), 1):
-                    self.progress.emit("all", f"Calibrando sensor {idx}/{total} ({sid})...")
+                    self.progress.emit("all", f"Calibrating sensor {idx}/{total} ({sid})...")
                     success = self._zero_and_calibrate_single(sid, s, zero_cond)
                     if not success:
                         return
                     self._emit_status(sid)
 
-            self.progress.emit("all", "Todos os sensores foram iniciados e calibrados com sucesso!")
+            self.progress.emit("all", "All sensors have been started and calibrated successfully!")
 
     def _poll_sensors(self):
         for s_id, sensor in list(self._manager._sensors.items()):
@@ -403,7 +403,7 @@ class SensorWorker(QThread):
         # Stop zeroing
         sensor.field_zero(on=False, show=False)
         self.remove_zeroing_task(sensor_id)
-        self.progress.emit(sensor_id, "Field zeroing concluído. Restaurando temp lock...")
+        self.progress.emit(sensor_id, "Field zeroing completed. Restoring temp lock...")
         
         temp_err_ok = False
         temp_err_last = float('inf')
@@ -417,7 +417,7 @@ class SensorWorker(QThread):
             self._emit_status(sensor_id)
             time.sleep(0.5)
             
-        self.progress.emit(sensor_id, "Calibrando...")
+        self.progress.emit(sensor_id, "Calibrating...")
         sensor.calibrate(show=False)
         
         try:
