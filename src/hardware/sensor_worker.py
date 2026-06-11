@@ -317,6 +317,12 @@ class SensorWorker(QThread):
             zero_cond = kwargs.get('zero_cond', 100)
             
             self.progress.emit(sensor_id, "Starting auto_start...")
+            
+            # Clear cached state to prevent instant bypass from previous runs
+            if hasattr(sensor, 'led'):
+                for k in sensor.led.keys():
+                    sensor.led[k] = False
+                    
             sensor.ser.write(b'>')
             sensor.update_status()
             
@@ -371,6 +377,10 @@ class SensorWorker(QThread):
 
             self.progress.emit("all", "Starting auto-start (warming up all lasers)...")
             for sid, s in sensors_dict.items():
+                # Clear cached state to prevent instant bypass from previous runs
+                if hasattr(s, 'led'):
+                    for k in s.led.keys():
+                        s.led[k] = False
                 s.ser.write(b'>')
                 s.update_status()
 
