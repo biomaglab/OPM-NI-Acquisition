@@ -537,15 +537,20 @@ class SensorWorker(QThread):
             
         self.progress.emit(sensor_id, "Calibrating...")
         cal_start = time.time()
+        
+        # Record number of messages before calibration so we don't parse old logs
+        msg_count_before = len(sensor.messages) if hasattr(sensor, 'messages') else 0
+        
         sensor.calibrate(show=False)
         cal_elapsed = time.time() - cal_start
         if cal_elapsed > self.timeout_calibration:
             self.progress.emit(sensor_id, f"WARNING — calibration took {cal_elapsed:.0f}s (timeout: {self.timeout_calibration}s).")
             
-        # Parse the calibration factor from the sensor's message history
+        # Parse the calibration factor from the NEW messages only
         cal_fact = None
         if hasattr(sensor, 'messages'):
-            for msg, msg_t in reversed(sensor.messages[-20:]):
+            new_msgs = sensor.messages[msg_count_before:]
+            for msg, msg_t in reversed(new_msgs):
                 if 'Calib. Fact.' in msg:
                     # Expected format: "Calib. Fact. : 15.90 (z)  -> in Z mode"
                     try:
@@ -559,7 +564,7 @@ class SensorWorker(QThread):
                     
         if cal_fact is not None:
             if cal_fact > 1.2:
-                self.progress.emit(sensor_id, f"FAILED: Calibration factor {cal_fact} > 1.2 (Background field too high)")
+                self.progress.emit(sensor_id, f"FAILED: Factor {cal_fact} > 1.2 (Background noise high)")
                 return False
             else:
                 self.progress.emit(sensor_id, f"Calibration factor: {cal_fact} (OK)")
