@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default timeout constants (seconds) — configurable via SensorWorker.set_timeouts()
-DEFAULT_TIMEOUT_LASER_TEMP_LOCK = 300   # 5 min — lasers take 2-3 min to warm up
-DEFAULT_TIMEOUT_FIELD_ZERO      = 120   # 2 min — field zeroing convergence
-DEFAULT_TIMEOUT_TEMP_RECOVERY   = 60    # 1 min — temp re-lock after zeroing
-DEFAULT_TIMEOUT_CALIBRATION     = 30    # 30 s  — calibration command
+DEFAULT_TIMEOUT_LASER_TEMP_LOCK = 240   # 4 min
+DEFAULT_TIMEOUT_FIELD_ZERO      = 180   # 3 min
+DEFAULT_TIMEOUT_TEMP_RECOVERY   = 90    # 1.5 min
+DEFAULT_TIMEOUT_CALIBRATION     = 60    # 1 min
 
 class SensorCommand(Enum):
     CONNECT = "connect"

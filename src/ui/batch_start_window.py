@@ -37,7 +37,7 @@ class BatchStartWindow(QDialog):
         self._status_labels = {}  # s_id -> QLabel for per-sensor status
 
         self.setWindowTitle("Batch Initialization Progress")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(500, 350)
         # Prevent interaction with main window while running
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
@@ -120,10 +120,13 @@ class BatchStartWindow(QDialog):
         configs = self.manager.get_configs()
         for s_id, cfg in configs.items():
             card = QFrame()
-            card.setStyleSheet(f"QFrame {{ background-color: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 4px; padding: 5px; }}")
+            card.setStyleSheet(f"QFrame {{ background-color: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 4px; padding: 2px; }}")
             card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(4, 4, 4, 4)
+            card_layout.setSpacing(2)
             
             top_layout = QHBoxLayout()
+            top_layout.setContentsMargins(0, 0, 0, 0)
 
             lbl_name = QLabel(f"{cfg['name']} ({s_id})")
             lbl_name.setStyleSheet("font-weight: bold; border: none;")
@@ -161,6 +164,7 @@ class BatchStartWindow(QDialog):
 
             # Field readings row (hidden by default, only shown during zeroing)
             fields_layout = QHBoxLayout()
+            fields_layout.setContentsMargins(0, 0, 0, 0)
             lbl_fields = QLabel("")
             lbl_fields.setStyleSheet(f"font-family: monospace; font-size: 11px; color: {TEXT_SECONDARY}; border: none;")
             fields_layout.addStretch()

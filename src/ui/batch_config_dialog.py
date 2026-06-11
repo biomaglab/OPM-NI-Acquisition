@@ -61,19 +61,19 @@ class BatchConfigDialog(QDialog):
 
         self.spin_warmup = QSpinBox()
         self.spin_warmup.setRange(60, 900)
-        self.spin_warmup.setValue(300)
+        self.spin_warmup.setValue(240)
         
         self.spin_zero = QSpinBox()
         self.spin_zero.setRange(30, 300)
-        self.spin_zero.setValue(120)
+        self.spin_zero.setValue(180)
         
         self.spin_temp = QSpinBox()
         self.spin_temp.setRange(10, 180)
-        self.spin_temp.setValue(60)
+        self.spin_temp.setValue(90)
 
         self.spin_cal = QSpinBox()
         self.spin_cal.setRange(10, 120)
-        self.spin_cal.setValue(30)
+        self.spin_cal.setValue(60)
 
         form_timeouts.addRow("Laser & Temp Warm-up:", self.spin_warmup)
         form_timeouts.addRow("Field Zeroing:", self.spin_zero)
