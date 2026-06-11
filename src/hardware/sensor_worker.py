@@ -368,12 +368,8 @@ class SensorWorker(QThread):
             zero_calibrate = kwargs.get('zero_calibrate', True)
             zero_cond = kwargs.get('zero_cond', 100)
             
-            self.progress.emit("all", "Assigning roles (Master/Slave)...")
-            for sid, s in sensors_dict.items():
-                config = self._manager.get_configs().get(sid, {})
-                is_master = config.get("is_master", False)
-                if hasattr(s, 'set_master'):
-                    s.set_master(master=is_master)
+            # Removed Master/Slave serial commands because Gen 1 sensors use physical BNC cables
+            # for sync, and the Gen 2 serial commands cause them to lock up.
 
             self.progress.emit("all", "Starting auto-start (warming up all lasers)...")
             for sid, s in sensors_dict.items():
@@ -461,9 +457,8 @@ class SensorWorker(QThread):
         if hasattr(sensor, 'set_axis_mode'):
             sensor.set_axis_mode(mode='z')
         
-        self.progress.emit(sensor_id, "Starting field zeroing (YZ only for Gen 1)...")
-        # Gen 1 sensors only have Y and Z axes. Attempting XYZ zeroing (axes_xyz=True) causes failures.
-        sensor.field_zero(on=True, axes_xyz=False, show=False)
+        self.progress.emit(sensor_id, "Starting field zeroing (XYZ)...")
+        sensor.field_zero(on=True, show=False)
         self.add_zeroing_task(sensor_id)
         
         # Mandatory wait to allow sensor hardware to begin the zeroing sweep.
