@@ -516,7 +516,6 @@ class SensorWorker(QThread):
                 
         # Stop zeroing
         sensor.field_zero(on=False, show=False)
-        self.remove_zeroing_task(sensor_id)
         self.progress.emit(sensor_id, "Field zeroing completed. Restoring temp lock...")
         
         temp_start = time.time()
@@ -524,9 +523,11 @@ class SensorWorker(QThread):
         temp_err_last = float('inf')
         while not temp_err_ok:
             if not self._running or self.is_cancelled():
+                self.remove_zeroing_task(sensor_id)
                 return False
             if time.time() - temp_start > self.timeout_temp_recovery:
                 self.progress.emit(sensor_id, f"TIMEOUT — temp recovery exceeded {self.timeout_temp_recovery}s.")
+                self.remove_zeroing_task(sensor_id)
                 return False
             sensor.update_status()
             err = sensor.sensor_par.get('cell temp error', float('inf'))
@@ -576,6 +577,7 @@ class SensorWorker(QThread):
         if hasattr(sensor, 'set_axis_mode'):
             sensor.set_axis_mode(mode=target_axis_mode)
             
+        self.remove_zeroing_task(sensor_id)
         return True
 
     def _check_zeroing_completion(self, sensor_id: str, sensor) -> None:
