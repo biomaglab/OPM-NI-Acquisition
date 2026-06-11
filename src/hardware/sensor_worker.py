@@ -455,6 +455,15 @@ class SensorWorker(QThread):
         sensor.field_zero(on=True, show=False)
         self.add_zeroing_task(sensor_id)
         
+        # Mandatory wait to allow sensor hardware to begin the zeroing sweep.
+        # If we check too early, we might read frozen values and stop zeroing prematurely.
+        self.progress.emit(sensor_id, "Waiting for zeroing sweep to begin...")
+        sweep_wait_start = time.time()
+        while time.time() - sweep_wait_start < 8.0:
+            if not self._running or self.is_cancelled():
+                return False
+            time.sleep(0.5)
+            
         x_comp, y_comp, z_comp, t = [], [], [], []
         zero_start = time.time()
         
@@ -532,6 +541,30 @@ class SensorWorker(QThread):
         cal_elapsed = time.time() - cal_start
         if cal_elapsed > self.timeout_calibration:
             self.progress.emit(sensor_id, f"WARNING — calibration took {cal_elapsed:.0f}s (timeout: {self.timeout_calibration}s).")
+            
+        # Parse the calibration factor from the sensor's message history
+        cal_fact = None
+        if hasattr(sensor, 'messages'):
+            for msg, msg_t in reversed(sensor.messages[-20:]):
+                if 'Calib. Fact.' in msg:
+                    # Expected format: "Calib. Fact. : 15.90 (z)  -> in Z mode"
+                    try:
+                        parts = msg.split(':')
+                        if len(parts) > 1:
+                            val_str = parts[1].strip().split()[0]
+                            cal_fact = float(val_str)
+                    except Exception as e:
+                        logger.debug(f"Failed to parse calibration factor from '{msg}': {e}")
+                    break
+                    
+        if cal_fact is not None:
+            if cal_fact > 1.2:
+                self.progress.emit(sensor_id, f"FAILED: Calibration factor {cal_fact} > 1.2 (Background field too high)")
+                return False
+            else:
+                self.progress.emit(sensor_id, f"Calibration factor: {cal_fact} (OK)")
+        else:
+            self.progress.emit(sensor_id, "WARNING: Could not read calibration factor from logs.")
         
         try:
             sensor.save_state()
