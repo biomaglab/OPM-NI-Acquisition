@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QWidget,
     QFrame,
-    QProgressBar
+    QProgressBar,
+    QMessageBox
 )
 
 from src.hardware.sensor_manager import SensorManager, SensorInfo
@@ -28,7 +29,7 @@ from src.ui.styles import (
 )
 
 class BatchStartWindow(QDialog):
-    def __init__(self, manager: SensorManager, worker: SensorWorker, parent=None):
+    def __init__(self, manager: SensorManager, worker: SensorWorker, parent=None, config: dict = None):
         super().__init__(parent)
         self.manager = manager
         self.worker = worker
@@ -45,8 +46,24 @@ class BatchStartWindow(QDialog):
         self._connect_signals()
         self._populate_sensors()
 
+        # Apply timeouts if config provided
+        kwargs = {}
+        if config:
+            if "timeouts" in config:
+                t = config["timeouts"]
+                self.worker.set_timeouts(
+                    laser_temp_lock=t.get("laser_temp_lock"),
+                    field_zero=t.get("field_zero"),
+                    temp_recovery=t.get("temp_recovery"),
+                    calibration=t.get("calibration")
+                )
+            if "perform_zero_calibrate" in config:
+                kwargs["zero_calibrate"] = config["perform_zero_calibrate"]
+            if "zero_cond" in config:
+                kwargs["zero_cond"] = config["zero_cond"]
+
         # Start the batch command immediately upon opening
-        self.worker.queue_command("all", SensorCommand.AUTO_START_ALL)
+        self.worker.queue_command("all", SensorCommand.AUTO_START_ALL, **kwargs)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -103,13 +120,15 @@ class BatchStartWindow(QDialog):
         configs = self.manager.get_configs()
         for s_id, cfg in configs.items():
             card = QFrame()
-            card.setStyleSheet(f"QFrame {{ background-color: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 4px; }}")
-            card_layout = QHBoxLayout(card)
+            card.setStyleSheet(f"QFrame {{ background-color: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 4px; padding: 5px; }}")
+            card_layout = QVBoxLayout(card)
+            
+            top_layout = QHBoxLayout()
 
             lbl_name = QLabel(f"{cfg['name']} ({s_id})")
             lbl_name.setStyleSheet("font-weight: bold; border: none;")
-            card_layout.addWidget(lbl_name)
-            card_layout.addStretch()
+            top_layout.addWidget(lbl_name)
+            top_layout.addStretch()
 
             # LEDs
             led_dict = {}
@@ -125,7 +144,7 @@ class BatchStartWindow(QDialog):
                 led_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 led_lbl.setFixedSize(65, 20)
                 led_lbl.setStyleSheet(f"background-color: {BG_INPUT}; color: {TEXT_SECONDARY}; border-radius: 10px; font-size: 10px; border: none;")
-                card_layout.addWidget(led_lbl)
+                top_layout.addWidget(led_lbl)
                 led_dict[key] = led_lbl
 
             # Per-sensor status label
@@ -136,10 +155,23 @@ class BatchStartWindow(QDialog):
                 f"background-color: {BG_INPUT}; color: {TEXT_SECONDARY};"
                 f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
             )
-            card_layout.addWidget(lbl_status)
+            top_layout.addWidget(lbl_status)
             self._status_labels[s_id] = lbl_status
+            card_layout.addLayout(top_layout)
 
+            # Field readings row (hidden by default, only shown during zeroing)
+            fields_layout = QHBoxLayout()
+            lbl_fields = QLabel("")
+            lbl_fields.setStyleSheet(f"font-family: monospace; font-size: 11px; color: {TEXT_SECONDARY}; border: none;")
+            fields_layout.addStretch()
+            fields_layout.addWidget(lbl_fields)
+            fields_layout.addStretch()
+            
+            # Save it so we can update it
             self._led_labels[s_id] = led_dict
+            self._led_labels[s_id]["_fields_lbl"] = lbl_fields
+            card_layout.addLayout(fields_layout)
+
             self.scroll_layout.addWidget(card)
             
             # Initial update
@@ -167,6 +199,17 @@ class BatchStartWindow(QDialog):
         update_single_led(leds["cell_temp_locked"], info.cell_temp_locked)
         update_single_led(leds["laser_locked"], info.laser_locked)
         update_single_led(leds["field_zeroed"], info.field_zeroed)
+        
+        # Update field values if we are in zeroing phase
+        if s_id in self._status_labels and self._status_labels[s_id].text() == "Zeroing...":
+            fields_lbl = leds.get("_fields_lbl")
+            if fields_lbl:
+                fields_text = f"Bz: {info.bz_field:>6.2f} pT   By: {info.by_field:>6.2f} pT   B0: {info.b0_field:>6.2f} pT"
+                fields_lbl.setText(fields_text)
+        else:
+            fields_lbl = leds.get("_fields_lbl")
+            if fields_lbl:
+                fields_lbl.setText("")
 
     @pyqtSlot(str, str)
     def _on_progress(self, s_id: str, message: str):
@@ -221,12 +264,38 @@ class BatchStartWindow(QDialog):
             self.progress_bar.setValue(1)
             self.btn_close.setEnabled(True)
             self.btn_cancel.setVisible(False)
-            if success:
-                self.lbl_phase.setText("Initialization Complete!")
+            
+            # Tally results
+            total = len(self._status_labels)
+            succeeded = 0
+            failed = 0
+            
+            summary_lines = []
+            for sid, lbl in self._status_labels.items():
+                status = lbl.text()
+                if "Done" in status:
+                    succeeded += 1
+                    summary_lines.append(f"• {sid}: Success")
+                else:
+                    failed += 1
+                    summary_lines.append(f"• {sid}: {status}")
+
+            if success and failed == 0:
+                self.lbl_phase.setText(f"Initialization Complete! ({succeeded}/{total} ready)")
                 self.lbl_phase.setStyleSheet("font-size: 14px; font-weight: bold; color: #3D8B37;")
             else:
-                self.lbl_phase.setText("Initialization Failed or Cancelled.")
+                self.lbl_phase.setText(f"Finished with issues: {failed}/{total} failed or cancelled.")
                 self.lbl_phase.setStyleSheet("font-size: 14px; font-weight: bold; color: #E74C3C;")
+                
+            # Show summary dialog
+            QMessageBox.information(
+                self,
+                "Batch Summary",
+                f"Batch initialization completed.\n\n"
+                f"Succeeded: {succeeded}/{total}\n"
+                f"Failed/Skipped: {failed}/{total}\n\n"
+                + "\n".join(summary_lines)
+            )
 
     def _on_cancel(self):
         self.worker.request_cancel()

@@ -31,6 +31,7 @@ from src.hardware.sensor_worker import SensorWorker, SensorCommand
 from src.ui.calibration_wizard import CalibrationWizard
 from src.ui.zeroing_window import ZeroingWindow
 from src.ui.batch_start_window import BatchStartWindow
+from src.ui.batch_config_dialog import BatchConfigDialog
 from src.ui.styles import (
     BG_DARKEST,
     BG_CARD,
@@ -554,14 +555,10 @@ class SensorDialog(QDialog):
             QMessageBox.warning(self, "Warning", "Multiple Master sensors configured! Please set exactly ONE sensor as Master.")
             return
             
-        reply = QMessageBox.question(
-            self,
-            "Start All Sensors",
-            "This will orchestrate the heating, zeroing, and calibration sequence for ALL configured sensors.\n\nProceed?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            window = BatchStartWindow(self.manager, self.worker, self)
+        dialog = BatchConfigDialog(self)
+        if dialog.exec():
+            config = dialog.get_config()
+            window = BatchStartWindow(self.manager, self.worker, self, config=config)
             window.exec()
         
     def _on_stream_toggled(self, checked: bool):

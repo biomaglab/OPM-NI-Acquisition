@@ -108,6 +108,10 @@ class SensorWorker(QThread):
         if calibration is not None:
             self.timeout_calibration = calibration
 
+    def set_zero_cond(self, cond: float):
+        """Update the global zeroing condition (gradient threshold in pT/s)."""
+        self._zero_cond = cond
+
     def set_polling_interval(self, seconds: float):
         self._polling_interval = seconds
         
@@ -318,12 +322,21 @@ class SensorWorker(QThread):
             
             self.progress.emit(sensor_id, "Waiting for laser lock and temp lock...")
             
-            while not sensor.led.get("laser lock (LED3)") or not sensor.led.get("cell temp lock (LED2)"):
+            lock_start_time = time.time()
+            locked = False
+            while not locked:
                 if not self._running or self.is_cancelled():
                     return
+                if time.time() - lock_start_time > self.timeout_laser_temp_lock:
+                    self.progress.emit(sensor_id, f"TIMEOUT — laser/temp lock exceeded {self.timeout_laser_temp_lock}s.")
+                    return
+                
                 sensor.update_status(clear_buffer=False)
                 self._emit_status(sensor_id)
-                time.sleep(0.5)
+                if sensor.led.get("laser lock (LED3)") and sensor.led.get("cell temp lock (LED2)"):
+                    locked = True
+                else:
+                    time.sleep(0.5)
                 
             if zero_calibrate:
                 success = self._zero_and_calibrate_single(sensor_id, sensor, zero_cond)
@@ -371,6 +384,10 @@ class SensorWorker(QThread):
                     if self.is_cancelled():
                         self.progress.emit("all", "Batch initialization cancelled by user.")
                     return
+
+                # If zero_cond was passed via kwargs, apply it globally for this batch
+                if "zero_cond" in kwargs:
+                    self.set_zero_cond(kwargs["zero_cond"])
 
                 newly_locked = []
                 for sid, s in list(pending_lock.items()):
@@ -480,7 +497,7 @@ class SensorWorker(QThread):
             if all(x < zero_cond for x in x_grad) and all(y < zero_cond for y in y_grad) and all(z < zero_cond for z in z_grad):
                 zeroed = True
             else:
-                sensor.update_status()
+                sensor.update_status(clear_buffer=False)
                 t.append(sensor.status_last_updated)
                 x_comp.append(sensor.sensor_par.get('B0 field (pT)', 0.0))
                 y_comp.append(sensor.sensor_par.get('By field (pT)', 0.0))
