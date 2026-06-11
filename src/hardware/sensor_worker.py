@@ -47,6 +47,7 @@ class SensorWorker(QThread):
         self._mutex = QMutex()
         self._cond = QWaitCondition()
         self._running = False
+        self._cancel_batch = False
         self._polling_interval = 0.5  # seconds between status updates
         self._zeroing_tasks: set[str] = set()
         self._zeroing_monitor: dict[str, dict[str, list[float]]] = {}
@@ -63,6 +64,19 @@ class SensorWorker(QThread):
         self._cond.wakeAll()
         self._mutex.unlock()
         self.wait(2000)
+
+    def request_cancel(self):
+        """Request cancellation of the current batch operation."""
+        self._mutex.lock()
+        self._cancel_batch = True
+        self._mutex.unlock()
+
+    def is_cancelled(self) -> bool:
+        """Check if a cancellation has been requested."""
+        self._mutex.lock()
+        val = self._cancel_batch
+        self._mutex.unlock()
+        return val
 
     def queue_command(self, sensor_id: str, command: SensorCommand, **kwargs) -> None:
         self._mutex.lock()
@@ -281,7 +295,7 @@ class SensorWorker(QThread):
             self.progress.emit(sensor_id, "Waiting for laser lock and temp lock...")
             
             while not sensor.led.get("laser lock (LED3)") or not sensor.led.get("cell temp lock (LED2)"):
-                if not self._running:
+                if not self._running or self.is_cancelled():
                     return
                 sensor.update_status(clear_buffer=False)
                 self._emit_status(sensor_id)
@@ -294,6 +308,11 @@ class SensorWorker(QThread):
                     self.progress.emit(sensor_id, "Auto-start completed!")
 
         elif command == SensorCommand.AUTO_START_ALL:
+            # Reset cancel flag at the start of a new batch
+            self._mutex.lock()
+            self._cancel_batch = False
+            self._mutex.unlock()
+
             sensors_dict = {}
             for sid, conf in self._manager.get_configs().items():
                 s = self._manager.get_sensor(sid)
@@ -321,7 +340,9 @@ class SensorWorker(QThread):
             self.progress.emit("all", "Waiting for lasers and temperatures to stabilize...")
             all_locked = False
             while not all_locked:
-                if not self._running:
+                if not self._running or self.is_cancelled():
+                    if self.is_cancelled():
+                        self.progress.emit("all", "Batch initialization cancelled by user.")
                     return
                 all_locked = True
                 for sid, s in sensors_dict.items():
@@ -334,9 +355,14 @@ class SensorWorker(QThread):
             if zero_calibrate:
                 total = len(sensors_dict)
                 for idx, (sid, s) in enumerate(sensors_dict.items(), 1):
+                    if self.is_cancelled():
+                        self.progress.emit("all", "Batch initialization cancelled by user.")
+                        return
                     self.progress.emit("all", f"Calibrating sensor {idx}/{total} ({sid})...")
                     success = self._zero_and_calibrate_single(sid, s, zero_cond)
                     if not success:
+                        if self.is_cancelled():
+                            self.progress.emit("all", "Batch initialization cancelled by user.")
                         return
                     self._emit_status(sid)
 
@@ -365,7 +391,7 @@ class SensorWorker(QThread):
         
         # Wait for 6 initial readings
         while len(x_comp) < 6:
-            if not self._running:
+            if not self._running or self.is_cancelled():
                 return False
             sensor.update_status()
             t.append(sensor.status_last_updated)
@@ -377,7 +403,7 @@ class SensorWorker(QThread):
             
         zeroed = False
         while not zeroed:
-            if not self._running:
+            if not self._running or self.is_cancelled():
                 return False
             
             t_diff = [j-i for i, j in zip(t[-5:][:-1], t[-5:][1:])]
@@ -408,7 +434,7 @@ class SensorWorker(QThread):
         temp_err_ok = False
         temp_err_last = float('inf')
         while not temp_err_ok:
-            if not self._running:
+            if not self._running or self.is_cancelled():
                 return False
             sensor.update_status()
             err = sensor.sensor_par.get('cell temp error', float('inf'))

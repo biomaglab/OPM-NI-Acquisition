@@ -81,6 +81,14 @@ class BatchStartWindow(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setStyleSheet(
+            f"background-color: #5C2020; color: #E8A0A0; border: 1px solid #8B3030;"
+            f" font-weight: bold; padding: 6px 18px;"
+        )
+        self.btn_cancel.clicked.connect(self._on_cancel)
+        btn_layout.addWidget(self.btn_cancel)
+
         self.btn_close = QPushButton("Close")
         self.btn_close.setEnabled(False)  # Disabled until finished
         self.btn_close.clicked.connect(self.accept)
@@ -161,9 +169,16 @@ class BatchStartWindow(QDialog):
             self.progress_bar.setRange(0, 1)
             self.progress_bar.setValue(1)
             self.btn_close.setEnabled(True)
+            self.btn_cancel.setVisible(False)
             if success:
                 self.lbl_phase.setText("Initialization Complete!")
                 self.lbl_phase.setStyleSheet("font-size: 14px; font-weight: bold; color: #3D8B37;")
             else:
-                self.lbl_phase.setText("Initialization Failed or Aborted.")
+                self.lbl_phase.setText("Initialization Failed or Cancelled.")
                 self.lbl_phase.setStyleSheet("font-size: 14px; font-weight: bold; color: #E74C3C;")
+
+    def _on_cancel(self):
+        self.worker.request_cancel()
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.setText("Cancelling...")
+        self.lbl_phase.setText("Cancelling... waiting for current step to finish.")
