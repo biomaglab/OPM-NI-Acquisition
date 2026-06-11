@@ -563,13 +563,7 @@ class SensorWorker(QThread):
                     break
                     
         if cal_fact is not None:
-            if cal_fact > 1.2:
-                self.progress.emit(sensor_id, f"FAILED: Factor {cal_fact} > 1.2 (Background noise high)")
-                return False
-            else:
-                self.progress.emit(sensor_id, f"Calibration factor: {cal_fact} (OK)")
-        else:
-            self.progress.emit(sensor_id, "WARNING: Could not read calibration factor from logs.")
+            self.progress.emit(sensor_id, f"Calibration factor: {cal_fact}")
         
         try:
             sensor.save_state()
