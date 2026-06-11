@@ -451,8 +451,9 @@ class SensorWorker(QThread):
         if hasattr(sensor, 'set_axis_mode'):
             sensor.set_axis_mode(mode='z')
         
-        self.progress.emit(sensor_id, "Starting field zeroing...")
-        sensor.field_zero(on=True, show=False)
+        self.progress.emit(sensor_id, "Starting field zeroing (YZ only for Gen 1)...")
+        # Gen 1 sensors only have Y and Z axes. Attempting XYZ zeroing (axes_xyz=True) causes failures.
+        sensor.field_zero(on=True, axes_xyz=False, show=False)
         self.add_zeroing_task(sensor_id)
         
         # Mandatory wait to allow sensor hardware to begin the zeroing sweep.
@@ -519,9 +520,10 @@ class SensorWorker(QThread):
         self.progress.emit(sensor_id, "Field zeroing completed. Restoring temp lock...")
         
         temp_start = time.time()
-        temp_err_ok = False
-        temp_err_last = float('inf')
-        while not temp_err_ok:
+        # Wait for thermal transients to settle before checking lock
+        time.sleep(3.0)
+        temp_locked = False
+        while not temp_locked:
             if not self._running or self.is_cancelled():
                 self.remove_zeroing_task(sensor_id)
                 return False
@@ -530,9 +532,12 @@ class SensorWorker(QThread):
                 self.remove_zeroing_task(sensor_id)
                 return False
             sensor.update_status()
-            err = sensor.sensor_par.get('cell temp error', float('inf'))
-            temp_err_ok = abs(err) <= 0.001 or abs(temp_err_last - err) <= 0.001
-            temp_err_last = err
+            
+            # Check the hardware LEDs for definitive lock status rather than numerical error
+            cell_locked = sensor.led.get('cell temp lock (LED2)', False)
+            laser_locked = sensor.led.get('laser lock (LED3)', False)
+            temp_locked = cell_locked and laser_locked
+            
             self._emit_status(sensor_id)
             time.sleep(0.5)
             
