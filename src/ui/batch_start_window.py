@@ -22,7 +22,9 @@ from src.ui.styles import (
     BORDER,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
-    ACCENT_PRIMARY
+    ACCENT_PRIMARY,
+    ACCENT_ACTIVE,
+    SENSOR_ERROR
 )
 
 class BatchStartWindow(QDialog):
@@ -31,6 +33,7 @@ class BatchStartWindow(QDialog):
         self.manager = manager
         self.worker = worker
         self._led_labels = {}  # s_id -> dict of led labels
+        self._status_labels = {}  # s_id -> QLabel for per-sensor status
 
         self.setWindowTitle("Batch Initialization Progress")
         self.setMinimumSize(600, 400)
@@ -125,6 +128,17 @@ class BatchStartWindow(QDialog):
                 card_layout.addWidget(led_lbl)
                 led_dict[key] = led_lbl
 
+            # Per-sensor status label
+            lbl_status = QLabel("Waiting...")
+            lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_status.setFixedSize(90, 20)
+            lbl_status.setStyleSheet(
+                f"background-color: {BG_INPUT}; color: {TEXT_SECONDARY};"
+                f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+            )
+            card_layout.addWidget(lbl_status)
+            self._status_labels[s_id] = lbl_status
+
             self._led_labels[s_id] = led_dict
             self.scroll_layout.addWidget(card)
             
@@ -158,6 +172,43 @@ class BatchStartWindow(QDialog):
     def _on_progress(self, s_id: str, message: str):
         if s_id == "all":
             self.lbl_phase.setText(message)
+        elif s_id in self._status_labels:
+            lbl = self._status_labels[s_id]
+            # Color-code based on message content
+            msg_lower = message.lower()
+            if "timeout" in msg_lower or "failed" in msg_lower or "skipping" in msg_lower:
+                lbl.setStyleSheet(
+                    f"background-color: {SENSOR_ERROR}; color: {TEXT_PRIMARY};"
+                    f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+                )
+                if "timeout" in msg_lower:
+                    lbl.setText("TIMEOUT")
+                else:
+                    lbl.setText("SKIPPED")
+            elif "calibrating" in msg_lower:
+                lbl.setStyleSheet(
+                    f"background-color: {ACCENT_PRIMARY}; color: {TEXT_PRIMARY};"
+                    f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+                )
+                lbl.setText("Calibrating...")
+            elif "zeroing" in msg_lower and "completed" not in msg_lower:
+                lbl.setStyleSheet(
+                    f"background-color: {ACCENT_PRIMARY}; color: {TEXT_PRIMARY};"
+                    f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+                )
+                lbl.setText("Zeroing...")
+            elif "restoring" in msg_lower or "temp lock" in msg_lower:
+                lbl.setStyleSheet(
+                    f"background-color: {ACCENT_PRIMARY}; color: {TEXT_PRIMARY};"
+                    f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+                )
+                lbl.setText("Temp Lock...")
+            elif "completed" in msg_lower or "auto-start completed" in msg_lower:
+                lbl.setStyleSheet(
+                    f"background-color: {ACCENT_ACTIVE}; color: {TEXT_PRIMARY};"
+                    f" border-radius: 10px; font-size: 10px; border: none; font-weight: bold;"
+                )
+                lbl.setText("Done \u2713")
 
     @pyqtSlot(str, object)
     def _on_status_updated(self, s_id: str, info: SensorInfo):

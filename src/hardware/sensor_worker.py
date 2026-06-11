@@ -13,6 +13,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Default timeout constants (seconds) — configurable via SensorWorker.set_timeouts()
+DEFAULT_TIMEOUT_LASER_TEMP_LOCK = 300   # 5 min — lasers take 2-3 min to warm up
+DEFAULT_TIMEOUT_FIELD_ZERO      = 120   # 2 min — field zeroing convergence
+DEFAULT_TIMEOUT_TEMP_RECOVERY   = 60    # 1 min — temp re-lock after zeroing
+DEFAULT_TIMEOUT_CALIBRATION     = 30    # 30 s  — calibration command
+
 class SensorCommand(Enum):
     CONNECT = "connect"
     DISCONNECT = "disconnect"
@@ -54,6 +60,12 @@ class SensorWorker(QThread):
         self._zero_cond = 100.0
         self._streaming_tasks: dict[str, str] = {}  # sensor_id -> axis
 
+        # Configurable timeouts (seconds)
+        self.timeout_laser_temp_lock = DEFAULT_TIMEOUT_LASER_TEMP_LOCK
+        self.timeout_field_zero = DEFAULT_TIMEOUT_FIELD_ZERO
+        self.timeout_temp_recovery = DEFAULT_TIMEOUT_TEMP_RECOVERY
+        self.timeout_calibration = DEFAULT_TIMEOUT_CALIBRATION
+
     def start_worker(self):
         self._running = True
         self.start()
@@ -83,6 +95,18 @@ class SensorWorker(QThread):
         self._queue.append((sensor_id, command, kwargs))
         self._cond.wakeAll()
         self._mutex.unlock()
+
+    def set_timeouts(self, laser_temp_lock: float = None, field_zero: float = None,
+                     temp_recovery: float = None, calibration: float = None):
+        """Update timeout values. Pass None to keep the current value."""
+        if laser_temp_lock is not None:
+            self.timeout_laser_temp_lock = laser_temp_lock
+        if field_zero is not None:
+            self.timeout_field_zero = field_zero
+        if temp_recovery is not None:
+            self.timeout_temp_recovery = temp_recovery
+        if calibration is not None:
+            self.timeout_calibration = calibration
 
     def set_polling_interval(self, seconds: float):
         self._polling_interval = seconds
@@ -338,23 +362,40 @@ class SensorWorker(QThread):
                 s.update_status()
 
             self.progress.emit("all", "Waiting for lasers and temperatures to stabilize...")
-            all_locked = False
-            while not all_locked:
+            pending_lock = dict(sensors_dict)  # sensors still waiting for lock
+            lock_start_times = {sid: time.time() for sid in pending_lock}
+            skipped_sensors: set[str] = set()
+
+            while pending_lock:
                 if not self._running or self.is_cancelled():
                     if self.is_cancelled():
                         self.progress.emit("all", "Batch initialization cancelled by user.")
                     return
-                all_locked = True
-                for sid, s in sensors_dict.items():
+
+                newly_locked = []
+                for sid, s in list(pending_lock.items()):
                     s.update_status(clear_buffer=False)
                     self._emit_status(sid)
-                    if not s.led.get("laser lock (LED3)") or not s.led.get("cell temp lock (LED2)"):
-                        all_locked = False
-                time.sleep(0.5)
+                    if s.led.get("laser lock (LED3)") and s.led.get("cell temp lock (LED2)"):
+                        newly_locked.append(sid)
+                    elif time.time() - lock_start_times[sid] > self.timeout_laser_temp_lock:
+                        self.progress.emit(sid, f"TIMEOUT — laser/temp lock exceeded {self.timeout_laser_temp_lock}s. Skipping.")
+                        self.progress.emit("all", f"Sensor {sid} timed out during warm-up. Skipping.")
+                        skipped_sensors.add(sid)
+                        newly_locked.append(sid)  # remove from pending
 
-            if zero_calibrate:
-                total = len(sensors_dict)
-                for idx, (sid, s) in enumerate(sensors_dict.items(), 1):
+                for sid in newly_locked:
+                    del pending_lock[sid]
+
+                if pending_lock:
+                    time.sleep(0.5)
+
+            # Remove skipped sensors from the calibration set
+            active_sensors = {sid: s for sid, s in sensors_dict.items() if sid not in skipped_sensors}
+
+            if zero_calibrate and active_sensors:
+                total = len(active_sensors)
+                for idx, (sid, s) in enumerate(active_sensors.items(), 1):
                     if self.is_cancelled():
                         self.progress.emit("all", "Batch initialization cancelled by user.")
                         return
@@ -363,10 +404,18 @@ class SensorWorker(QThread):
                     if not success:
                         if self.is_cancelled():
                             self.progress.emit("all", "Batch initialization cancelled by user.")
-                        return
+                            return
+                        # Sensor failed/timed out — skip it, continue with others
+                        self.progress.emit(sid, "Zeroing/calibration failed. Skipping.")
+                        skipped_sensors.add(sid)
+                        continue
                     self._emit_status(sid)
 
-            self.progress.emit("all", "All sensors have been started and calibrated successfully!")
+            if skipped_sensors:
+                names = ", ".join(skipped_sensors)
+                self.progress.emit("all", f"Initialization complete. Skipped sensors: {names}")
+            else:
+                self.progress.emit("all", "All sensors have been started and calibrated successfully!")
 
     def _poll_sensors(self):
         for s_id, sensor in list(self._manager._sensors.items()):
@@ -378,6 +427,8 @@ class SensorWorker(QThread):
                     logger.debug(f"Polling error on {s_id}: {e}")
 
     def _zero_and_calibrate_single(self, sensor_id: str, sensor: object, zero_cond: float) -> bool:
+        """Run field zeroing, temp recovery, and calibration for a single sensor.
+        Returns True on success, False on timeout/cancel/failure."""
         # The QZFM firmware requires the sensor to be in 'z' mode to run Field Zero and Calibration.
         # If it is in 'dual' mode, it will fail with "Z alone, Run Field Zero & then Calibration".
         if hasattr(sensor, 'set_axis_mode'):
@@ -388,10 +439,16 @@ class SensorWorker(QThread):
         self.add_zeroing_task(sensor_id)
         
         x_comp, y_comp, z_comp, t = [], [], [], []
+        zero_start = time.time()
         
         # Wait for 6 initial readings
         while len(x_comp) < 6:
             if not self._running or self.is_cancelled():
+                return False
+            if time.time() - zero_start > self.timeout_field_zero:
+                self.progress.emit(sensor_id, f"TIMEOUT — field zeroing exceeded {self.timeout_field_zero}s.")
+                sensor.field_zero(on=False, show=False)
+                self.remove_zeroing_task(sensor_id)
                 return False
             sensor.update_status()
             t.append(sensor.status_last_updated)
@@ -404,6 +461,11 @@ class SensorWorker(QThread):
         zeroed = False
         while not zeroed:
             if not self._running or self.is_cancelled():
+                return False
+            if time.time() - zero_start > self.timeout_field_zero:
+                self.progress.emit(sensor_id, f"TIMEOUT — field zeroing exceeded {self.timeout_field_zero}s.")
+                sensor.field_zero(on=False, show=False)
+                self.remove_zeroing_task(sensor_id)
                 return False
             
             t_diff = [j-i for i, j in zip(t[-5:][:-1], t[-5:][1:])]
@@ -431,10 +493,14 @@ class SensorWorker(QThread):
         self.remove_zeroing_task(sensor_id)
         self.progress.emit(sensor_id, "Field zeroing completed. Restoring temp lock...")
         
+        temp_start = time.time()
         temp_err_ok = False
         temp_err_last = float('inf')
         while not temp_err_ok:
             if not self._running or self.is_cancelled():
+                return False
+            if time.time() - temp_start > self.timeout_temp_recovery:
+                self.progress.emit(sensor_id, f"TIMEOUT — temp recovery exceeded {self.timeout_temp_recovery}s.")
                 return False
             sensor.update_status()
             err = sensor.sensor_par.get('cell temp error', float('inf'))
@@ -444,7 +510,11 @@ class SensorWorker(QThread):
             time.sleep(0.5)
             
         self.progress.emit(sensor_id, "Calibrating...")
+        cal_start = time.time()
         sensor.calibrate(show=False)
+        cal_elapsed = time.time() - cal_start
+        if cal_elapsed > self.timeout_calibration:
+            self.progress.emit(sensor_id, f"WARNING — calibration took {cal_elapsed:.0f}s (timeout: {self.timeout_calibration}s).")
         
         try:
             sensor.save_state()
