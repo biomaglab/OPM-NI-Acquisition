@@ -425,7 +425,12 @@ class SensorDialog(QDialog):
             
         port, ok = QInputDialog.getItem(self, "Add Sensor", "Select port:", ports, 0, False)
         if ok and port:
-            s_id = f"qzfm_{len(self.manager.get_configs())}"
+            # Generate a unique ID that won't collide with existing ones
+            existing_ids = set(self.manager.get_configs().keys())
+            idx = 0
+            while f"qzfm_{idx}" in existing_ids:
+                idx += 1
+            s_id = f"qzfm_{idx}"
             self.manager.add_sensor(s_id, port)
             self._populate_list()
             
