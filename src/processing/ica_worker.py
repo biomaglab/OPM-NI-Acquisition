@@ -34,6 +34,7 @@ class IcaWorker(QObject):
         active_channels: list[int],
         window_seconds: float = 3.0,
         update_interval_ms: int = 500,
+        num_components: int | None = None,
     ) -> None:
         super().__init__()
         self._sample_rate = sample_rate
@@ -41,6 +42,7 @@ class IcaWorker(QObject):
         self._window_samples = int(sample_rate * window_seconds)
         self._update_interval_ms = update_interval_ms
         self._num_channels = len(active_channels)
+        self._num_components = num_components if num_components is not None else self._num_channels
 
         # Buffer: shape (num_active_channels, window_samples)
         self._buffer = np.zeros((self._num_channels, self._window_samples), dtype=np.float64)
@@ -48,7 +50,7 @@ class IcaWorker(QObject):
         self._samples_accumulated = 0
 
         self._timer: QTimer | None = None
-        self._ica = FastICA(n_components=self._num_channels, random_state=42, max_iter=200)
+        self._ica = FastICA(n_components=self._num_components, random_state=42, max_iter=200)
 
     @pyqtSlot()
     def start_timer(self) -> None:

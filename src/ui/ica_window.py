@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QDoubleSpinBox,
+    QSpinBox,
     QFormLayout,
 )
 
@@ -104,6 +105,7 @@ class IcaWindow(QMainWindow):
             chk = QCheckBox(f"CH {ch_idx + 1:02d}")
             chk.setChecked(True)
             chk.setProperty("ch_idx", ch_idx)
+            chk.stateChanged.connect(self._update_components_range)
             self._checkboxes.append(chk)
             ch_grid.addWidget(chk, i // 3, i % 3)
             
@@ -121,6 +123,11 @@ class IcaWindow(QMainWindow):
         self._spin_window.setDecimals(1)
         self._spin_window.setSingleStep(0.5)
         param_layout.addRow("WINDOW:", self._spin_window)
+        
+        self._spin_components = QSpinBox()
+        self._spin_components.setRange(1, len(self._available_channels))
+        self._spin_components.setValue(len(self._available_channels))
+        param_layout.addRow("COMPONENTS:", self._spin_components)
         cp_layout.addWidget(param_group)
         
         # Run Button
@@ -161,6 +168,15 @@ class IcaWindow(QMainWindow):
             if chk.isChecked()
         ]
 
+    def _update_components_range(self) -> None:
+        """Update the maximum number of components based on active channels."""
+        num_selected = len(self._get_selected_channels())
+        if num_selected > 0:
+            self._spin_components.setMaximum(num_selected)
+            # Ensure the current value isn't higher than the new maximum
+            if self._spin_components.value() > num_selected:
+                self._spin_components.setValue(num_selected)
+
     def _toggle_ica(self) -> None:
         if self._is_running:
             self._stop_ica()
@@ -170,9 +186,6 @@ class IcaWindow(QMainWindow):
     def _stop_ica(self) -> None:
         self._is_running = False
         
-        if self._worker:
-            self._worker.stop_timer()
-        
         if self._thread:
             self._thread.quit()
             self._thread.wait(2000)
@@ -180,12 +193,12 @@ class IcaWindow(QMainWindow):
         self._worker = None
         self._thread = None
         
-        # Unlock UI
         self._btn_all.setEnabled(True)
         self._btn_none.setEnabled(True)
         for chk in self._checkboxes:
             chk.setEnabled(True)
         self._spin_window.setEnabled(True)
+        self._spin_components.setEnabled(True)
             
         self._btn_run.setText("START ICA")
         self._btn_run.setObjectName("btn_start")
@@ -259,35 +272,46 @@ class IcaWindow(QMainWindow):
         super().showEvent(event)
         # Ensure we connect the routing signal to the worker if running
         # Actually, it's safer to connect it when starting the worker.
-        
     def _start_ica(self) -> None:
-        selected = self._get_selected_channels()
-        if len(selected) < 2:
+        selected_physical = self._get_selected_channels()
+        if len(selected_physical) < 2:
             QMessageBox.warning(self, "Invalid Selection", "Please select at least 2 channels for ICA.")
             return
             
-        self._selected_channels = selected
+        self._selected_channels = selected_physical
         self._current_window_seconds = self._spin_window.value()
+        
+        # Determine number of components (PCA dimensionality reduction)
+        num_components = self._spin_components.value()
+        
+        # Data array from MainWindow only contains the active physical channels.
+        # We must convert the selected physical channels into logical indices (rows)
+        logical_indices = [
+            self._available_channels.index(ch) 
+            for ch in selected_physical
+        ]
         
         self._btn_all.setEnabled(False)
         self._btn_none.setEnabled(False)
         for chk in self._checkboxes:
             chk.setEnabled(False)
         self._spin_window.setEnabled(False)
+        self._spin_components.setEnabled(False)
             
         self._btn_run.setText("STOP ICA")
         self._btn_run.setObjectName("btn_stop")
         self.style().unpolish(self._btn_run)
         self.style().polish(self._btn_run)
         
-        self._setup_chart(len(selected))
+        self._setup_chart(num_components)
         
         self._thread = QThread()
         self._worker = IcaWorker(
             sample_rate=self._sample_rate,
-            active_channels=selected,
+            active_channels=logical_indices,
             window_seconds=self._current_window_seconds,
-            update_interval_ms=500
+            update_interval_ms=500,
+            num_components=num_components
         )
         self._worker.moveToThread(self._thread)
         
@@ -300,4 +324,4 @@ class IcaWindow(QMainWindow):
         
         self._is_running = True
         self._thread.start()
-        logger.info("ICA started with channels: %s", selected)
+        logger.info("ICA started with channels: %s", selected_physical)
