@@ -21,6 +21,25 @@ try:
             logger.debug(f"Ignored error in QZFM update_status: {e}")
     QZFM.update_status = _safe_update_status
 
+    # Monkey-patch QZFM._get_next_message to fix a severe race condition
+    # where the serial buffer is repeatedly cleared during polling, 
+    # causing calibration timeouts.
+    _original_get_next_message = QZFM._get_next_message
+    def _safe_get_next_message(self, timeout=1, clear_buffer=True):
+        if clear_buffer:
+            self.ser.reset_input_buffer()
+        mess = []
+        t_start = time.time()
+        while len(mess) == 0:
+            # Pass clear_buffer=False so we don't wipe incoming messages while waiting!
+            message = self._read_serial(self.nbytes_status, clear_buffer=False)
+            t = time.time()
+            mess = [(m[1:], t) for m in message if len(m) > 0 and m[0] == '#']
+            if time.time() - t_start > timeout:
+                return
+        self.messages.extend(mess)
+    QZFM._get_next_message = _safe_get_next_message
+
 except ImportError:
     HAS_QZFM = False
 
