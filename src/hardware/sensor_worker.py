@@ -264,8 +264,7 @@ class SensorWorker(QThread):
         elif command == SensorCommand.CALIBRATE:
             sensor = self._manager.get_sensor(sensor_id)
             if sensor:
-                self.progress.emit(sensor_id, "Calibrating...")
-                sensor.calibrate(show=False)
+                self._run_calibration_with_validation(sensor_id, sensor)
                 self._emit_status(sensor_id)
                 
         elif command == SensorCommand.FIELD_RESET:
@@ -546,81 +545,7 @@ class SensorWorker(QThread):
             self._emit_status(sensor_id)
             time.sleep(0.5)
             
-        self.progress.emit(sensor_id, "Calibrating...")
-        cal_start = time.time()
-        
-        # Record number of messages before calibration so we don't parse old logs
-        msg_count_before = len(sensor.messages) if hasattr(sensor, 'messages') else 0
-        
-        sensor.calibrate(show=False)
-        cal_elapsed = time.time() - cal_start
-        if cal_elapsed > self.timeout_calibration:
-            self.progress.emit(sensor_id, f"WARNING — calibration took {cal_elapsed:.0f}s (timeout: {self.timeout_calibration}s).")
-            
-        # ── Validate calibration response ────────────────────────────────── #
-        # The QZFM sensor returns a message like:
-        #   "Calib. Fact. x: 1.23, y: 0.98, z: 1.05, (xy) 0.45, ..."
-        # We search for a message containing both "calib" and "fact" (case-insensitive),
-        # then extract all float values after ':' in each comma-separated segment.
-        # A healthy factor is <= 1.5; the hardware cap is 15.9.
-        
-        CAL_FACTOR_MAX = 15.9
-        cal_factors: list[float] = []
-        cal_msg_found = False
-        
-        if hasattr(sensor, 'messages'):
-            new_msgs = sensor.messages[msg_count_before:]
-            for msg, msg_t in reversed(new_msgs):
-                msg_lower = msg.lower()
-                if 'calib' in msg_lower and 'fact' in msg_lower:
-                    cal_msg_found = True
-                    # Parse comma-separated segments, each containing "label: value"
-                    segments = msg.split(',')
-                    for seg in segments:
-                        if ':' in seg:
-                            after_colon = seg.split(':')[-1].strip()
-                            # Extract the first token that looks like a float
-                            for token in after_colon.split():
-                                try:
-                                    cal_factors.append(float(token))
-                                    break  # one float per segment
-                                except ValueError:
-                                    continue
-                    break
-        
-        if cal_msg_found and cal_factors:
-            factors_str = ", ".join(f"{f:.2f}" for f in cal_factors)
-            self.progress.emit(sensor_id, f"Calibration factors: [{factors_str}]")
-            
-            if any(f >= CAL_FACTOR_MAX for f in cal_factors):
-                sensor.is_calibrated = False
-                self.progress.emit(sensor_id,
-                    f"CALIBRATION FAILED — factor(s) at hardware cap ({CAL_FACTOR_MAX}). "
-                    f"Check ambient field or sensor health.")
-                logger.warning("Calibration failed for %s: factors %s hit cap", sensor_id, cal_factors)
-            elif any(f > 1.5 for f in cal_factors):
-                self.progress.emit(sensor_id,
-                    f"WARNING — calibration factor(s) above 1.5 (not optimal). "
-                    f"Sensor may still work but performance is degraded.")
-                logger.warning("Calibration warning for %s: factors %s above 1.5", sensor_id, cal_factors)
-            else:
-                self.progress.emit(sensor_id, "Calibration OK — all factors within healthy range.")
-        elif not cal_msg_found:
-            sensor.is_calibrated = False
-            self.progress.emit(sensor_id,
-                "CALIBRATION FAILED — no calibration response received from sensor.")
-            logger.error("Calibration failed for %s: no 'Calib...Fact' message in response", sensor_id)
-        
-        try:
-            sensor.save_state()
-        except Exception as e:
-            logger.debug(f"Failed to save sensor state: {e}")
-            
-        # Restore the user's configured axis mode after calibration is complete
-        config = self._manager.get_configs().get(sensor_id, {})
-        target_axis_mode = config.get("axis_mode", "z")
-        if hasattr(sensor, 'set_axis_mode'):
-            sensor.set_axis_mode(mode=target_axis_mode)
+        self._run_calibration_with_validation(sensor_id, sensor)
             
         self.remove_zeroing_task(sensor_id)
         return True
@@ -667,3 +592,72 @@ class SensorWorker(QThread):
                 setattr(self, idx_key, len(info.messages))
                 
         self.status_updated.emit(sensor_id, info)
+
+    def _run_calibration_with_validation(self, sensor_id: str, sensor: object):
+        self.progress.emit(sensor_id, "Calibrating...")
+        cal_start = time.time()
+        
+        # Record number of messages before calibration so we don't parse old logs
+        msg_count_before = len(sensor.messages) if hasattr(sensor, 'messages') else 0
+        
+        sensor.calibrate(show=False)
+        cal_elapsed = time.time() - cal_start
+        if cal_elapsed > self.timeout_calibration:
+            self.progress.emit(sensor_id, f"WARNING — calibration took {cal_elapsed:.0f}s (timeout: {self.timeout_calibration}s).")
+            
+        # ── Validate calibration response ────────────────────────────────── #
+        CAL_FACTOR_MAX = 15.9
+        cal_factors: list[float] = []
+        cal_msg_found = False
+        
+        if hasattr(sensor, 'messages'):
+            new_msgs = sensor.messages[msg_count_before:]
+            for msg, msg_t in reversed(new_msgs):
+                msg_lower = msg.lower()
+                if 'calib' in msg_lower and 'fact' in msg_lower:
+                    cal_msg_found = True
+                    segments = msg.split(',')
+                    for seg in segments:
+                        if ':' in seg:
+                            after_colon = seg.split(':')[-1].strip()
+                            for token in after_colon.split():
+                                try:
+                                    cal_factors.append(float(token))
+                                    break
+                                except ValueError:
+                                    continue
+                    break
+        
+        if cal_msg_found and cal_factors:
+            factors_str = ", ".join(f"{f:.2f}" for f in cal_factors)
+            self.progress.emit(sensor_id, f"Calibration factors: [{factors_str}]")
+            
+            if any(f >= CAL_FACTOR_MAX for f in cal_factors):
+                sensor.is_calibrated = False
+                self.progress.emit(sensor_id,
+                    f"CALIBRATION FAILED — factor(s) at hardware cap ({CAL_FACTOR_MAX}). "
+                    f"Check ambient field or sensor health.")
+                logger.warning("Calibration failed for %s: factors %s hit cap", sensor_id, cal_factors)
+            elif any(f > 1.5 for f in cal_factors):
+                self.progress.emit(sensor_id,
+                    f"WARNING — calibration factor(s) above 1.5 (not optimal). "
+                    f"Sensor may still work but performance is degraded.")
+                logger.warning("Calibration warning for %s: factors %s above 1.5", sensor_id, cal_factors)
+            else:
+                self.progress.emit(sensor_id, "Calibration OK — all factors within healthy range.")
+        elif not cal_msg_found:
+            sensor.is_calibrated = False
+            self.progress.emit(sensor_id,
+                "CALIBRATION FAILED — no calibration response received from sensor.")
+            logger.error("Calibration failed for %s: no 'Calib...Fact' message in response", sensor_id)
+        
+        try:
+            sensor.save_state()
+        except Exception as e:
+            logger.debug(f"Failed to save sensor state: {e}")
+            
+        # Restore the user's configured axis mode after calibration is complete
+        config = self._manager.get_configs().get(sensor_id, {})
+        target_axis_mode = config.get("axis_mode", "z")
+        if hasattr(sensor, 'set_axis_mode'):
+            sensor.set_axis_mode(mode=target_axis_mode)
