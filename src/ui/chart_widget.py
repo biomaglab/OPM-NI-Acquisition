@@ -50,21 +50,15 @@ class ChartWidget(QWidget):
 
     def __init__(
         self,
-        num_channels: int = 24,
         active_channels: list[int] | None = None,
         sample_rate: float = 1000.0,
         window_seconds: float = 5.0,
-        rows: int = 6,
-        cols: int = 4,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._num_channels = num_channels
-        self._active_channels = active_channels if active_channels is not None else list(range(num_channels))
+        self._active_channels = active_channels if active_channels is not None else list(range(24))
         self._sample_rate = sample_rate
         self._window_seconds = window_seconds
-        self._rows = rows
-        self._cols = cols
 
         # Circular buffer: we only need buffers for ACTIVE channels
         self._window_samples = int(sample_rate * window_seconds)
@@ -92,28 +86,14 @@ class ChartWidget(QWidget):
 
         self._graphics_layout = pg.GraphicsLayoutWidget()
         self._graphics_layout.setBackground(BG_DARKEST)
+        self._graphics_layout.ci.layout.setSpacing(0)  # Removes gap between channels
+        self._graphics_layout.ci.setContentsMargins(0, 0, 0, 0) # Remove padding around the entire grid
         layout.addWidget(self._graphics_layout)
 
         self._plots: list[pg.PlotItem] = []
         self._curves: list[pg.PlotDataItem] = []
 
-        for i in range(num_channels):
-            row = i // cols
-            col = i % cols
-            plot = self._graphics_layout.addPlot(row=row, col=col)
-            self._configure_plot(plot, i)
-
-            color = CHANNEL_COLORS[i % len(CHANNEL_COLORS)]
-            curve = plot.plot(
-                self._time_axis,
-                np.zeros(self._window_samples),
-                pen=pg.mkPen(color=color, width=1.5),
-            )
-
-            self._plots.append(plot)
-            self._curves.append(curve)
-            
-        self._apply_active_state()
+        self._build_plots()
 
     # ── Public API ────────────────────────────────────────────────────── #
 
@@ -125,7 +105,7 @@ class ChartWidget(QWidget):
             for _ in self._active_channels
         ]
         self._write_pos = 0
-        self._apply_active_state()
+        self._build_plots()
 
     def update_data(self, data: np.ndarray) -> None:
         """Append a new block of data and refresh all curves.
@@ -165,7 +145,7 @@ class ChartWidget(QWidget):
             if i < num_ch:
                 # Roll buffer so that the oldest sample is at x=0.
                 rolled = np.roll(self._buffers[i], -self._write_pos)
-                self._curves[ch_idx].setData(self._time_axis, rolled)
+                self._curves[i].setData(self._time_axis, rolled)
 
     def set_window_seconds(self, seconds: float) -> None:
         """Change the visible time window and reallocate buffers."""
@@ -185,31 +165,86 @@ class ChartWidget(QWidget):
         """Zero all buffers and reset curves."""
         for i, ch_idx in enumerate(self._active_channels):
             self._buffers[i][:] = 0.0
-            self._curves[ch_idx].setData(self._time_axis, self._buffers[i])
+            self._curves[i].setData(self._time_axis, self._buffers[i])
         self._write_pos = 0
+
+    def reset_views(self) -> None:
+        """Reset the auto-range and X-axis for all active plots."""
+        for plot in self._plots:
+            plot.setXRange(0, self._window_seconds, padding=0)
+            plot.enableAutoRange(axis=pg.ViewBox.YAxis)
 
     # ── Internal helpers ──────────────────────────────────────────────── #
 
-    def _apply_active_state(self) -> None:
-        """Dim inactive channels and show them as OFF."""
-        from src.ui.styles import TEXT_DISABLED
-        
-        for i in range(self._num_channels):
-            plot = self._plots[i]
-            curve = self._curves[i]
-            
-            if i in self._active_channels:
-                label = f"CH {i + 1:02d}"
-                color = CHANNEL_COLORS[i % len(CHANNEL_COLORS)]
-                plot.setTitle(label, color=color, size="8pt")
-                curve.setPen(pg.mkPen(color=color, width=1.5))
-            else:
-                plot.setTitle(f"CH {i + 1:02d} (OFF)", color=TEXT_DISABLED, size="8pt")
-                curve.setPen(pg.mkPen(color=TEXT_DISABLED, width=1.0))
-                curve.setData(self._time_axis, np.zeros(self._window_samples))
+    def _build_plots(self) -> None:
+        """Dynamically build the plot grid based on active channels."""
+        self._graphics_layout.clear()
+        self._plots.clear()
+        self._curves.clear()
 
-    def _configure_plot(self, plot: pg.PlotItem, channel_index: int) -> None:
+        n_active = len(self._active_channels)
+        if n_active == 0:
+            return
+
+        import math
+        cols = math.ceil(math.sqrt(n_active))
+        rows = math.ceil(n_active / cols) if cols > 0 else 0
+
+        total_cells = rows * cols
+
+        for i in range(total_cells):
+            row = i // cols
+            col = i % cols
+            
+            if i < n_active:
+                ch_idx = self._active_channels[i]
+                plot = self._graphics_layout.addPlot(row=row, col=col)
+                self._configure_plot(plot, i, rows, cols, is_active=True)
+
+                color = CHANNEL_COLORS[ch_idx % len(CHANNEL_COLORS)]
+                curve = plot.plot(
+                    self._time_axis,
+                    np.zeros(self._window_samples),
+                    pen=pg.mkPen(color=color, width=1.5),
+                )
+
+                # Channel name label — drawn as a legend-like overlay in scene coords
+                label = pg.LabelItem(
+                    text=f"<span style='color:{color}; font-size:8pt; font-weight:bold; font-family:{FONT_MONO};'>CH {ch_idx + 1:02d}</span>",
+                    justify='left',
+                )
+                label.setParentItem(plot.vb)
+                label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(4, 2))
+
+                self._plots.append(plot)
+                self._curves.append(curve)
+            else:
+                # Add a dummy invisible plot to fill the hole and maintain grid symmetry
+                plot = self._graphics_layout.addPlot(row=row, col=col)
+                self._configure_plot(plot, i, rows, cols, is_active=False)
+
+    def _configure_plot(self, plot: pg.PlotItem, index: int, rows: int, cols: int, is_active: bool = True) -> None:
         """Style a single plot widget for an instrument / oscilloscope look."""
+        # Remove the title row from the internal layout to eliminate vertical gaps
+        plot.setTitle(None)
+        plot.titleLabel.setMaximumHeight(0)
+        plot.titleLabel.setMinimumHeight(0)
+        plot.titleLabel.setVisible(False)
+
+        # Hide the right and top axes to remove any extra horizontal/vertical padding
+        plot.hideAxis('right')
+        plot.hideAxis('top')
+
+        if not is_active:
+            plot.hideAxis('left')
+            plot.hideAxis('bottom')
+            plot.hideButtons()
+            plot.setMenuEnabled(False)
+            plot.setContentsMargins(0, 0, 0, 0)
+            plot.layout.setContentsMargins(0, 0, 0, 0)
+            plot.layout.setSpacing(0)
+            return
+
         plot.setXRange(0, self._window_seconds, padding=0)
 
         # Grid: subtle lines resembling oscilloscope graticule.
@@ -222,8 +257,8 @@ class ChartWidget(QWidget):
         plot.setClipToView(True)
 
         # Minimal axis labels — only leftmost column shows Y, bottom row shows X.
-        row = channel_index // self._cols
-        col = channel_index % self._cols
+        row = index // cols
+        col = index % cols
 
         ax_left = plot.getAxis("left")
         ax_bottom = plot.getAxis("bottom")
@@ -233,13 +268,19 @@ class ChartWidget(QWidget):
             ax.setPen(pg.mkPen(color=BORDER, width=1))
             ax.setTextPen(pg.mkPen(color=TEXT_SECONDARY))
 
-        ax_left.setStyle(showValues=(col == 0), tickLength=-4)
-        ax_bottom.setStyle(showValues=(row == self._rows - 1), tickLength=-4)
+        # Force constant dimensions for axes to prevent text from shifting plot widths
+        ax_left.setWidth(45)
+        ax_bottom.setHeight(18)
 
-        if col == 0:
-            ax_left.setLabel("V", color=TEXT_SECONDARY, **{"font-size": "8pt"})
-        if row == self._rows - 1:
-            ax_bottom.setLabel("s", color=TEXT_SECONDARY, **{"font-size": "8pt"})
+        # Show Y axis ticks and label on ALL plots
+        ax_left.setStyle(showValues=True, tickLength=-4)
+        ax_bottom.setStyle(showValues=(row == rows - 1), tickLength=-4)
+
+        ax_left.setLabel("V", color=TEXT_SECONDARY, **{"font-size": "9pt", "font-weight": "bold"})
+        if row == rows - 1:
+            ax_bottom.setLabel("s", color=TEXT_SECONDARY, **{"font-size": "9pt"})
 
         # Tight layout for maximum data density.
-        plot.setContentsMargins(1, 1, 1, 1)
+        plot.setContentsMargins(0, 0, 0, 0)
+        plot.layout.setContentsMargins(0, 0, 0, 0)
+        plot.layout.setSpacing(0)

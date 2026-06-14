@@ -26,6 +26,7 @@ class DaqConfig:
     """
 
     device_name: str = "cDAQ1Mod1"
+    total_channels: int = 24
     active_channels: list[int] = field(default_factory=lambda: list(range(24)))
     channel_prefix: str = "ai"
     sample_rate: float = 1000.0

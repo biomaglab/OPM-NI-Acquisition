@@ -65,6 +65,7 @@ class SettingsDialog(QDialog):
 
         self._settings = QSettings(_ORG, _APP)
         cfg = daq_config or DaqConfig()
+        self._total_channels = cfg.total_channels
 
         # ── Main layout ───────────────────────────────────────────────── #
         main_layout = QVBoxLayout(self)
@@ -153,30 +154,79 @@ class SettingsDialog(QDialog):
         btn_none.setFixedHeight(22)
         btn_none.clicked.connect(lambda: self._set_all_channels(False))
         
+        btn_detect = QPushButton("DETECT")
+        btn_detect.setFixedHeight(22)
+        btn_detect.clicked.connect(self._detect_channels)
+        
         btn_row.addWidget(btn_all)
         btn_row.addWidget(btn_none)
+        btn_row.addWidget(btn_detect)
         v_layout.addLayout(btn_row)
         
         # Aumenta a distância entre os botões e o grid
         v_layout.addSpacing(15) 
 
         # Checkboxes Grid
-        ch_layout = QGridLayout()
-        ch_layout.setSpacing(6)
-
+        self._ch_layout = QGridLayout()
+        self._ch_layout.setSpacing(6)
+        
         self._chk_channels: list[QCheckBox] = []
-        for i in range(24):
+        self._rebuild_checkboxes(self._total_channels, cfg.active_channels)
+
+        v_layout.addLayout(self._ch_layout)
+        layout.addRow(ch_group)
+        self._tabs.addTab(page, "Hardware")
+
+    def _rebuild_checkboxes(self, total: int, active: list[int]) -> None:
+        for chk in self._chk_channels:
+            chk.deleteLater()
+        self._chk_channels.clear()
+        
+        for i in range(total):
             chk = QCheckBox(f"CH {i+1:02d}")
             chk.setMinimumHeight(24)
-            chk.setChecked(i in cfg.active_channels)
+            chk.setChecked(i in active)
             self._chk_channels.append(chk)
             row = i // 4
             col = i % 4
-            ch_layout.addWidget(chk, row, col)
+            self._ch_layout.addWidget(chk, row, col)
 
-        v_layout.addLayout(ch_layout)
-        layout.addRow(ch_group)
-        self._tabs.addTab(page, "Hardware")
+    def _detect_channels(self) -> None:
+        try:
+            import nidaqmx
+            import nidaqmx.system
+            
+            system = nidaqmx.system.System.local()
+            device_name = self._edit_device.text().strip()
+            
+            if not device_name:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Warning", "Please enter a device name.")
+                return
+                
+            if device_name not in system.devices:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Not Found", f"Device '{device_name}' not found in system.")
+                return
+                
+            dev = system.devices[device_name]
+            chans = dev.ai_physical_chans
+            num_chans = len(chans)
+            
+            self._total_channels = num_chans
+            current_active = [i for i, chk in enumerate(self._chk_channels) if chk.isChecked() and i < num_chans]
+            if not current_active:
+                current_active = list(range(num_chans))
+            self._rebuild_checkboxes(num_chans, current_active)
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Success", f"Detected {num_chans} channels on '{device_name}'.")
+        except ImportError:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", "nidaqmx is not installed.")
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", f"Failed to detect channels: {e}")
 
     def _set_all_channels(self, state: bool) -> None:
         for chk in self._chk_channels:
@@ -291,8 +341,13 @@ class SettingsDialog(QDialog):
         self._spin_vmax.setValue(float(s.value("hw/vmax", self._spin_vmax.value())))
         self._spin_sample_rate.setValue(float(s.value("acq/sample_rate", self._spin_sample_rate.value())))
         
+        total = int(s.value("hw/total_channels", self._total_channels))
+        if total != self._total_channels:
+            self._total_channels = total
+            self._rebuild_checkboxes(total, [])
+
         # Channels
-        active_channels = s.value("hw/active_channels", list(range(24)))
+        active_channels = s.value("hw/active_channels", list(range(self._total_channels)))
         # Handle cases where QSettings returns strings due to persistence limits
         if isinstance(active_channels, str):
             active_channels = [int(x.strip()) for x in active_channels.split(",") if x.strip()]
@@ -313,6 +368,7 @@ class SettingsDialog(QDialog):
         s.setValue("hw/vmin", self._spin_vmin.value())
         s.setValue("hw/vmax", self._spin_vmax.value())
         s.setValue("acq/sample_rate", self._spin_sample_rate.value())
+        s.setValue("hw/total_channels", self._total_channels)
         
         active_channels = [i for i, chk in enumerate(self._chk_channels) if chk.isChecked()]
         s.setValue("hw/active_channels", active_channels)
@@ -343,6 +399,8 @@ class SettingsDialog(QDialog):
         self._spin_vmin.setValue(cfg.min_voltage)
         self._spin_vmax.setValue(cfg.max_voltage)
         self._spin_sample_rate.setValue(cfg.sample_rate)
+        self._total_channels = cfg.total_channels
+        self._rebuild_checkboxes(self._total_channels, list(range(self._total_channels)))
         self._set_all_channels(True)
 
         self._chk_notch.setChecked(True)
@@ -365,6 +423,7 @@ class SettingsDialog(QDialog):
         
         return DaqConfig(
             device_name=self._edit_device.text(),
+            total_channels=self._total_channels,
             active_channels=active_channels,
             channel_prefix=self._edit_prefix.text(),
             sample_rate=self._spin_sample_rate.value(),

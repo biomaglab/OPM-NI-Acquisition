@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QFileDialog,
     QMessageBox,
+    QPushButton,
 )
 
 from src.hardware.daq_config import DaqConfig
@@ -93,6 +94,23 @@ class MainWindow(QMainWindow):
         self._statusbar = QStatusBar()
         self.setStatusBar(self._statusbar)
         self._statusbar.showMessage("READY")
+        
+        # Add reset view icon to status bar (bottom right corner)
+        self._btn_reset_view = QPushButton("⌂")
+        self._btn_reset_view.setToolTip("Reset Chart View")
+        self._btn_reset_view.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_reset_view.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #888;
+                font-size: 26px;
+                padding: 0px 6px 6px 0px;
+            }
+            QPushButton:hover { color: #FFF; }
+        """)
+        self._btn_reset_view.clicked.connect(self._chart.reset_views)
+        self._statusbar.addPermanentWidget(self._btn_reset_view)
 
     # ── UI Construction ───────────────────────────────────────────────── #
 
@@ -112,7 +130,6 @@ class MainWindow(QMainWindow):
 
         # Right: chart grid
         self._chart = ChartWidget(
-            num_channels=24, # Physical slots in grid
             active_channels=self._daq_config.active_channels,
             sample_rate=self._daq_config.sample_rate,
             window_seconds=self._control_panel.get_window_seconds(),
