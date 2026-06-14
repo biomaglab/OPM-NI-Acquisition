@@ -214,13 +214,11 @@ class QzfmWindow(QMainWindow):
         self._led_temp_lock = LedIndicator("CELL TEMP LOCK")
         self._led_laser_lock = LedIndicator("LASER LOCK")
         self._led_field_zeroed = LedIndicator("FIELD ZEROED")
-        self._led_master = LedIndicator("IS MASTER")
 
         led_layout.addWidget(self._led_laser_on)
         led_layout.addWidget(self._led_temp_lock)
         led_layout.addWidget(self._led_laser_lock)
         led_layout.addWidget(self._led_field_zeroed)
-        led_layout.addWidget(self._led_master)
         controls_layout.addWidget(led_group)
 
         # Readouts Group
@@ -461,7 +459,6 @@ class QzfmWindow(QMainWindow):
         self._led_temp_lock.set_state(leds.get("cell temp lock (LED2)", False))
         self._led_laser_lock.set_state(leds.get("laser lock (LED3)", False))
         self._led_field_zeroed.set_state(leds.get("field zeroed (LED4)", False))
-        self._led_master.set_state(leds.get("is master", False))
 
         self._btn_zero.setChecked(leds.get("field zeroed (LED4)", False))
 
@@ -511,7 +508,7 @@ class QzfmWindow(QMainWindow):
         for lbl in [self._lbl_temp_err, self._lbl_temp_volt, self._lbl_bx, self._lbl_by, self._lbl_bz]:
             lbl.setText("N/A")
             lbl.setStyleSheet("color: " + TEXT_SECONDARY)
-        for led in [self._led_laser_on, self._led_temp_lock, self._led_laser_lock, self._led_field_zeroed, self._led_master]:
+        for led in [self._led_laser_on, self._led_temp_lock, self._led_laser_lock, self._led_field_zeroed]:
             led.set_state(False)
 
     def _set_ui_connected(self, connected: bool) -> None:

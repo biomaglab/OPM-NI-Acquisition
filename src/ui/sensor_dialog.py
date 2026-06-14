@@ -138,8 +138,7 @@ class SensorDialog(QDialog):
         self.edit_name = QLineEdit()
         self.edit_name.editingFinished.connect(self._on_name_changed)
         
-        self.chk_master = QCheckBox("Master")
-        self.chk_master.toggled.connect(self._on_master_toggled)
+        self.edit_name.editingFinished.connect(self._on_name_changed)
         
         self.cmb_sensor_axis_mode = QComboBox()
         self.cmb_sensor_axis_mode.addItems(["z", "y", "dual"])
@@ -148,7 +147,6 @@ class SensorDialog(QDialog):
         form.addRow("ID:", self.lbl_id)
         form.addRow("Port:", self.lbl_port)
         form.addRow("Name:", self.edit_name)
-        form.addRow("Synchronization:", self.chk_master)
         form.addRow("Axis Mode:", self.cmb_sensor_axis_mode)
         
         tc_layout.addWidget(details_group)
@@ -359,11 +357,6 @@ class SensorDialog(QDialog):
         
         if self.edit_name.text() != info.name and not self.edit_name.hasFocus():
             self.edit_name.setText(info.name)
-            
-        self.chk_master.blockSignals(True)
-        if self.chk_master.isChecked() != info.is_master:
-            self.chk_master.setChecked(info.is_master)
-        self.chk_master.blockSignals(False)
         
         self.cmb_sensor_axis_mode.blockSignals(True)
         if self.cmb_sensor_axis_mode.currentText() != info.axis_mode:
@@ -449,14 +442,6 @@ class SensorDialog(QDialog):
             cfg["name"] = self.edit_name.text()
             self._populate_list()
             
-    def _on_master_toggled(self, checked: bool):
-        s_id = self._current_sensor_id()
-        if s_id:
-            if self.manager.get_info(s_id).connected:
-                self.worker.queue_command(s_id, SensorCommand.SET_MASTER, is_master=checked)
-            else:
-                self.manager.get_configs()[s_id]["is_master"] = checked
-                
     def _on_axis_mode_changed(self, text: str):
         s_id = self._current_sensor_id()
         if s_id:
@@ -550,14 +535,6 @@ class SensorDialog(QDialog):
         configs = self.manager.get_configs()
         if not configs:
             QMessageBox.warning(self, "Warning", "No sensors configured.")
-            return
-            
-        masters = [cid for cid, c in configs.items() if c.get('is_master')]
-        if len(masters) == 0:
-            QMessageBox.warning(self, "Warning", "No Master sensor configured! Please set exactly one sensor as Master before starting all.")
-            return
-        elif len(masters) > 1:
-            QMessageBox.warning(self, "Warning", "Multiple Master sensors configured! Please set exactly ONE sensor as Master.")
             return
             
         dialog = BatchConfigDialog(self)
